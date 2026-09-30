@@ -56,12 +56,14 @@ Parameters:
 
 * question_name: "Do you want to send an error?"
   * required: true
-  * type: 
-  * choices: yes / no
+  * type: Multiple Choice (single select)
+    * choices: 
+    yes
+    no
   * the default is *no*
   * answer variable name: *error*
 
-  **Create survey question**
+**Create survey question**
 
 image:survey1.png[Survey,align="center",link=self,window=blank]
        
