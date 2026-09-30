@@ -48,7 +48,7 @@ image::initial_config.png[Initial,align="center",link=self,window=_blank]
 
 Verifying that backup files landed in the correct Git branch and directory structure confirms the backup workflow completed successfully. In production, this is how you prove that a valid restore point exists before making changes.
 
-. Access the *Gitea* tab and log in
+. Access the *Gitea Repo* tab and log in
 +
 user: *gitea* +
 password: *gitea123*
@@ -243,7 +243,7 @@ The playbook implements a Backups-as-Code pipeline:
 
 == Snapshots
 
-NOTE: It's important to complete the backups as directed throughout this workshop. Each backup can be used as a snapshot to effectively reconfigure devices in the event that your session is powered off. The network devices will reboot to their startup configuration if your workshop session is shut down and powered on.
+NOTE: It's important to complete the backups as directed throughout this workshop. Each backup can be used as a snapshot to effectively reconfigure devices in the event that your session is powered off. The network devices will reboot to their startup configuration if your workshop session is shut down and powered back on.
 
 The `1-2-Backups_as_Code-Git-Restore` Job Template provides a dropdown to select an appropriate backup to reload the switch configurations.
 

@@ -1,7 +1,8 @@
 ---
-# HEALTHCHECK — Quick environment readiness check (migrated ZT Guided content)
-# Verifies the bastion host is reachable via SSH. Non-destructive: does not
-# modify any lab state. Should complete in under 60 seconds.
+# HEALTHCHECK — Quick environment readiness check
+# Verifies the bastion host is reachable via SSH and the containerlab
+# topology has no exited nodes. Non-destructive: does not modify any
+# lab state. Should complete in under 120 seconds.
 #
 # Exit 0 = healthy, non-zero = unhealthy.
 
@@ -17,10 +18,83 @@
         ansible_ssh_user: "{{ lookup('ansible.builtin.env', 'BASTION_USER') }}"
         ansible_ssh_pass: "{{ lookup('ansible.builtin.env', 'BASTION_PASSWORD') }}"
 
+    - name: Add containerlab host
+      ansible.builtin.add_host:
+        name: containerlab
+        ansible_ssh_host: containerlab
+        ansible_ssh_port: "{{ lookup('ansible.builtin.env', 'BASTION_PORT') }}"
+        ansible_ssh_user: "{{ lookup('ansible.builtin.env', 'BASTION_USER') }}"
+        ansible_ssh_pass: "{{ lookup('ansible.builtin.env', 'BASTION_PASSWORD') }}"
+        groups: clab
+
 - name: Healthcheck
-  hosts: all:!localhost
+  hosts: all:!localhost:!clab
   gather_facts: false
   become: false
   tasks:
     - name: Verify SSH connectivity
       ansible.builtin.ping:
+
+- name: Containerlab topology check
+  hosts: clab
+  gather_facts: false
+  become: true
+  vars:
+    clab_topo: /home/lab-user/2_multi_vendor_vxlan/vxlan.base.clab.yml
+    settle_seconds: 120
+  tasks:
+    - name: Initial topology check
+      block:
+        - name: Run containerlab inspect
+          ansible.builtin.command:
+            cmd: "containerlab inspect -t {{ clab_topo }} --format json"
+          register: clab_inspect
+          changed_when: false
+
+        - name: Parse container states
+          ansible.builtin.set_fact:
+            exited_nodes: >-
+              {{ (clab_inspect.stdout | from_json).containers
+                 | default([])
+                 | selectattr('state', 'equalto', 'exited')
+                 | map(attribute='name')
+                 | list }}
+
+        - name: Assert no nodes are exited
+          ansible.builtin.assert:
+            that:
+              - exited_nodes | length == 0
+            fail_msg: "Exited containerlab nodes: {{ exited_nodes | join(', ') }}"
+            success_msg: "All containerlab nodes are running"
+
+      rescue:
+        - name: Redeploy topology to recover exited nodes
+          ansible.builtin.command:
+            cmd: "containerlab redeploy -t {{ clab_topo }}"
+          changed_when: true
+
+        - name: Wait for nodes to settle
+          ansible.builtin.pause:
+            seconds: "{{ settle_seconds }}"
+
+        - name: Re-inspect after redeploy
+          ansible.builtin.command:
+            cmd: "containerlab inspect -t {{ clab_topo }} --format json"
+          register: clab_reinspect
+          changed_when: false
+
+        - name: Parse container states after redeploy
+          ansible.builtin.set_fact:
+            exited_nodes_retry: >-
+              {{ (clab_reinspect.stdout | from_json).containers
+                 | default([])
+                 | selectattr('state', 'equalto', 'exited')
+                 | map(attribute='name')
+                 | list }}
+
+        - name: Assert no nodes are exited after redeploy
+          ansible.builtin.assert:
+            that:
+              - exited_nodes_retry | length == 0
+            fail_msg: "Still exited after redeploy: {{ exited_nodes_retry | join(', ') }}"
+            success_msg: "All containerlab nodes are running after redeploy"

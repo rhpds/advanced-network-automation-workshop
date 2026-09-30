@@ -1,4 +1,8 @@
 ---
+view_switcher:
+  enabled: true
+  default_mode: split
+
 antora:
   name: modules
   dir: www

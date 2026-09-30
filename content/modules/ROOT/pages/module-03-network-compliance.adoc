@@ -72,11 +72,13 @@ image:create_survey.png[compliance,align="center",link=self,window=blank]
 **Parameters:**
 
 * Which compliance checks to run?
-* multiple select
-* logging
-* ntp
-* variable = *tag*
-* *Enable survey*
+* Multiple Choice (multiple select)
+* Multiple Choice Options (enter between options)
+  * logging
+  * ntp
+* Answer variable name = *tag*
+* Save survey question
+* *Survey enabled* toggle on
 +
 image:question_config.png[compliance,align="center",link=self,window=blank]
 +
@@ -345,7 +347,7 @@ The output shows exactly which logging settings were added, removed, or changed 
 
 == Step 5: Approve the changes to continue the `1-3-Network-Compliance-Workflow`
 
-1. Return to the AAP Controller to approve.
+1. Return to the **Ansible Automation Platform tab to approve.
 +
 *Jobs*
 
