@@ -137,28 +137,3 @@
 
     - name: Workshop inventory, toolkit templates, users, teams, RBAC
       ansible.builtin.include_tasks: tasks/controller_workshop_objects.yml
-
-    - name: Fix workflow visualizer height (AAP 2.6 CSS bug)
-      ansible.builtin.uri:
-        url: "{{ controller_endpoint.rstrip('/') }}/api/controller/v2/settings/ui/"
-        method: PATCH
-        body_format: json
-        body:
-          CUSTOM_CSS: >-
-            div[class*="workflow-visualizer"] {
-              height: 80vh !important;
-              min-height: 600px !important;
-            }
-        user: "{{ controller_username }}"
-        password: "{{ controller_password }}"
-        force_basic_auth: true
-        validate_certs: "{{ controller_verify_ssl | default(false) }}"
-        status_code: [200]
-      register: css_result
-      failed_when: false
-
-    - name: Log CSS override result
-      ansible.builtin.debug:
-        msg: >-
-          {{ 'Workflow visualizer CSS fix applied' if css_result.status == 200
-             else 'CUSTOM_CSS setting not available (status ' ~ css_result.status ~ ') — manual workaround needed' }}
