@@ -166,7 +166,48 @@
       ansible.builtin.debug:
         msg: "{{ ospf_result.stdout_lines }}"
 
-- name: Validate end-to-end host reachability
+- name: Validate gateway reachability
+  hosts: clab
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Ping host1 → gateway (VLAN 50)
+      ansible.builtin.command:
+        cmd: docker exec clab-vxlan-host1 ping -c 3 -W 5 10.50.50.1
+      register: ping_h1_gw
+      changed_when: false
+      failed_when: ping_h1_gw.rc != 0
+
+    - name: Ping host2 → gateway (VLAN 50)
+      ansible.builtin.command:
+        cmd: docker exec clab-vxlan-host2 ping -c 3 -W 5 10.50.50.1
+      register: ping_h2_gw
+      changed_when: false
+      failed_when: ping_h2_gw.rc != 0
+
+    - name: Ping host3 → gateway (VLAN 40)
+      ansible.builtin.command:
+        cmd: docker exec clab-vxlan-host3 ping -c 3 -W 5 10.40.40.1
+      register: ping_h3_gw
+      changed_when: false
+      failed_when: ping_h3_gw.rc != 0
+
+    - name: Ping host4 → gateway (VLAN 60)
+      ansible.builtin.command:
+        cmd: docker exec clab-vxlan-host4 ping -c 3 -W 5 10.60.60.1
+      register: ping_h4_gw
+      changed_when: false
+      failed_when: ping_h4_gw.rc != 0
+
+    - name: Show gateway ping results
+      ansible.builtin.debug:
+        msg:
+          - "host1 → gw 10.50.50.1: {{ ping_h1_gw.stdout_lines[-1] }}"
+          - "host2 → gw 10.50.50.1: {{ ping_h2_gw.stdout_lines[-1] }}"
+          - "host3 → gw 10.40.40.1: {{ ping_h3_gw.stdout_lines[-1] }}"
+          - "host4 → gw 10.60.60.1: {{ ping_h4_gw.stdout_lines[-1] }}"
+
+- name: Validate cross-vendor host reachability
   hosts: clab
   gather_facts: false
   become: true
@@ -185,7 +226,7 @@
       changed_when: false
       failed_when: ping_h2_h4.rc != 0
 
-    - name: Show ping results
+    - name: Show cross-vendor ping results
       ansible.builtin.debug:
         msg:
           - "host1 → host3: {{ ping_h1_h3.stdout_lines[-1] }}"
