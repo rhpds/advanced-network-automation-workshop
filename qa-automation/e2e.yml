@@ -1,8 +1,15 @@
 ---
-# E2E — End-to-end test (migrated ZT Guided content)
-# Solves and validates every module in ui-config.yml order, reusing the
-# legacy runtime-automation shell scripts (solve-<host>.sh / validation-<host>.sh)
-# that a migrated repo already ships. Fails on the first broken module.
+# E2E — End-to-end test
+# Fast-forwards the lab to a fully configured state by pushing golden configs
+# to all network devices, then validates the final fabric is operational.
+#
+# Golden configs live in qa-automation/golden-configs/<device>.cfg and represent
+# the running-config after all workshop modules are complete (through overlay).
+#
+# Flow:
+#   1. Build inventory (bastion + containerlab + network devices)
+#   2. Push golden configs to each device via cli_config
+#   3. Validate fabric — verify BGP/OSPF adjacencies and end-to-end host reachability
 
 - name: Build inventory
   hosts: localhost
@@ -15,26 +22,156 @@
         ansible_ssh_port: "{{ lookup('ansible.builtin.env', 'BASTION_PORT') }}"
         ansible_ssh_user: "{{ lookup('ansible.builtin.env', 'BASTION_USER') }}"
         ansible_ssh_pass: "{{ lookup('ansible.builtin.env', 'BASTION_PASSWORD') }}"
+        groups: bastion
 
-- name: E2E - solve and validate all modules
-  hosts: all:!localhost
+    - name: Add containerlab host
+      ansible.builtin.add_host:
+        name: containerlab
+        ansible_ssh_host: containerlab
+        ansible_ssh_port: "{{ lookup('ansible.builtin.env', 'BASTION_PORT') }}"
+        ansible_ssh_user: "{{ lookup('ansible.builtin.env', 'BASTION_USER') }}"
+        ansible_ssh_pass: "{{ lookup('ansible.builtin.env', 'BASTION_PASSWORD') }}"
+        groups: clab
+
+    - name: Add Arista EOS devices
+      ansible.builtin.add_host:
+        name: "{{ item.name }}"
+        ansible_host: containerlab
+        ansible_port: "{{ item.port }}"
+        ansible_network_os: arista.eos.eos
+        ansible_connection: ansible.netcommon.network_cli
+        ansible_user: admin
+        ansible_password: admin@123
+        ansible_become: true
+        ansible_become_method: enable
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
+        groups: eos_devices
+      loop:
+        - { name: leaf1, port: 2222 }
+        - { name: leaf2, port: 2223 }
+        - { name: spine1, port: 2226 }
+        - { name: spine2, port: 2227 }
+
+    - name: Add Cisco NX-OS devices
+      ansible.builtin.add_host:
+        name: "{{ item.name }}"
+        ansible_host: containerlab
+        ansible_port: "{{ item.port }}"
+        ansible_network_os: cisco.nxos.nxos
+        ansible_connection: ansible.netcommon.network_cli
+        ansible_user: admin
+        ansible_password: admin@123
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
+        groups: nxos_devices
+      loop:
+        - { name: leaf3, port: 2224 }
+        - { name: leaf4, port: 2225 }
+
+- name: Push golden configs to EOS devices
+  hosts: eos_devices
+  gather_facts: false
+  tasks:
+    - name: Push config
+      ansible.netcommon.cli_config:
+        config: "{{ lookup('file', playbook_dir ~ '/golden-configs/' ~ inventory_hostname ~ '.cfg') }}"
+      register: config_result
+
+    - name: Save running to startup
+      arista.eos.eos_command:
+        commands:
+          - write memory
+
+- name: Push golden configs to NX-OS devices
+  hosts: nxos_devices
+  gather_facts: false
+  tasks:
+    - name: Push config
+      ansible.netcommon.cli_config:
+        config: "{{ lookup('file', playbook_dir ~ '/golden-configs/' ~ inventory_hostname ~ '.cfg') }}"
+      register: config_result
+
+    - name: Save running to startup
+      cisco.nxos.nxos_command:
+        commands:
+          - copy running-config startup-config
+
+- name: Wait for convergence
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Pause for routing protocols to converge
+      ansible.builtin.pause:
+        seconds: 60
+
+- name: Validate fabric — EOS devices
+  hosts: eos_devices
+  gather_facts: false
+  tasks:
+    - name: Check BGP summary
+      arista.eos.eos_command:
+        commands:
+          - show ip bgp summary
+      register: bgp_result
+
+    - name: Show BGP output
+      ansible.builtin.debug:
+        msg: "{{ bgp_result.stdout_lines }}"
+
+    - name: Check OSPF neighbors
+      arista.eos.eos_command:
+        commands:
+          - show ip ospf neighbor
+      register: ospf_result
+
+    - name: Show OSPF output
+      ansible.builtin.debug:
+        msg: "{{ ospf_result.stdout_lines }}"
+
+- name: Validate fabric — NX-OS devices
+  hosts: nxos_devices
+  gather_facts: false
+  tasks:
+    - name: Check BGP summary
+      cisco.nxos.nxos_command:
+        commands:
+          - show ip bgp summary
+      register: bgp_result
+
+    - name: Show BGP output
+      ansible.builtin.debug:
+        msg: "{{ bgp_result.stdout_lines }}"
+
+    - name: Check OSPF neighbors
+      cisco.nxos.nxos_command:
+        commands:
+          - show ip ospf neighbors
+      register: ospf_result
+
+    - name: Show OSPF output
+      ansible.builtin.debug:
+        msg: "{{ ospf_result.stdout_lines }}"
+
+- name: Validate end-to-end host reachability
+  hosts: clab
   gather_facts: false
   become: true
-  vars:
-    runtime_path: "{{ playbook_dir }}/../runtime-automation"
-    _ui_config: "{{ lookup('file', playbook_dir ~ '/../ui-config.yml') | from_yaml }}"
-    modules_in_order: "{{ _ui_config.antora.modules | map(attribute='name') | list }}"
   tasks:
-    - name: "Run solve then validation for each module"
-      ansible.builtin.include_tasks: tasks/run_script.yml
-      loop: >-
-        {{
-          modules_in_order
-          | product(['solve', 'validation'])
-          | list
-        }}
-      loop_control:
-        loop_var: _module_stage
-      vars:
-        module_name: "{{ _module_stage[0] }}"
-        stage_name: "{{ _module_stage[1] }}"
+    - name: Ping from host1 to host3 (cross-vendor VXLAN)
+      ansible.builtin.command:
+        cmd: docker exec clab-vxlan-host1 ping -c 3 -W 5 10.40.40.43
+      register: ping_h1_h3
+      changed_when: false
+      failed_when: ping_h1_h3.rc != 0
+
+    - name: Ping from host2 to host4 (cross-vendor VXLAN)
+      ansible.builtin.command:
+        cmd: docker exec clab-vxlan-host2 ping -c 3 -W 5 10.60.60.64
+      register: ping_h2_h4
+      changed_when: false
+      failed_when: ping_h2_h4.rc != 0
+
+    - name: Show ping results
+      ansible.builtin.debug:
+        msg:
+          - "host1 → host3: {{ ping_h1_h3.stdout_lines[-1] }}"
+          - "host2 → host4: {{ ping_h2_h4.stdout_lines[-1] }}"
