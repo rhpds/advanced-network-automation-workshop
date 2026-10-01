@@ -55,6 +55,8 @@ password: *gitea123*
 +
 image::gitea.png[Gitea,align="center",link=self,window=_blank]
 +
+image::gitearepo.png[Gitea_Repo,align="center",link=self,window=_blank]
++
 . Navigate to *repository* | *gitea/201-multi-vendor-vxlan-workshop* | *branches*
 +
 WARNING: Don't use the *main* branch because it does not include your backups!
