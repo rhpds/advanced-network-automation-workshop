@@ -11,6 +11,15 @@
 #   2. Push golden configs to each device via cli_config
 #   3. Validate fabric — verify BGP/OSPF adjacencies and end-to-end host reachability
 
+- name: Install required collections
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Install collections from requirements.yml
+      ansible.builtin.command:
+        cmd: ansible-galaxy collection install -r {{ playbook_dir }}/requirements.yml --force
+      changed_when: true
+
 - name: Build inventory
   hosts: localhost
   gather_facts: false
