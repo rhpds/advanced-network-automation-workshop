@@ -15,6 +15,12 @@
   hosts: localhost
   gather_facts: false
   tasks:
+    - name: Install Python SSH dependencies
+      ansible.builtin.pip:
+        name:
+          - paramiko
+        state: present
+
     - name: Install collections from requirements.yml
       ansible.builtin.command:
         cmd: ansible-galaxy collection install -r {{ playbook_dir }}/requirements.yml --force
