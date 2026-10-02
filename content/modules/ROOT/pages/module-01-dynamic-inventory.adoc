@@ -7,7 +7,7 @@ This section introduces the lab environment and guides you through setting up a 
 
 TIP: Access the full online workshop overview and lab guide in a separate browser window: link:https://andubiel.github.io/advanced-network-automation-workshop[Workshop Overview and Guide^]
 
-TIP: You can switch between Instructions, Split screen, and Tabs view using the view toggle **arrow** at the top-right center of the screen.
+TIP: You can switch between Instructions, Split screen, and Tabs view using the view toggle **arrow** at the right center of the screen.
 
 NOTE: Subscribe to our link:https://www.youtube.com/ansibleautomation[Ansible YouTube channel^] to stay connected with the latest Ansible automation content.
 
