@@ -105,13 +105,13 @@ image::base_configs_workflow.png[compliance,align="center",link=self,window=blan
 
 The base configuration module follows a three-stage workflow: **Backup → Deploy → Test**. Each stage is run as a separate job template from the Ansible Automation Controller.
 
-. **Backup** -- Run the `1-2-Backups_as_Code-Backup-GIT` job template to snapshot every device's running configuration before making changes.
-Name the branch something meaningful like *pre_base_config*.
+. **Backup** -- Runs the `1-2-Backups_as_Code-Backup-GIT` job template to snapshot every device's running configuration before making changes.
+Name the branch something meaningful like *base_configs*.
 +
 This backup is your recovery point.
-If the base configuration introduces an issue, use the `1-2-Backups_as_Code-Git-Restore` job template to select this branch and roll devices back to their exact pre-base state.
+If the base configuration introduces an issue, the workflow uses the `1-2-Backups_as_Code-Git-Restore` job template to select this branch and roll devices back to their exact pre-base state.
 
-. **Deploy** -- Launch the `1-4-Base_Configs-Deploy` job template to push base fabric configuration to all spines and leafs:
+. **Deploy** -- Launches the `1-4-Base_Configs-Deploy` job template to push base fabric configuration to all spines and leafs:
 +
 * Hostnames
 * VLANs
@@ -121,7 +121,7 @@ If the base configuration introduces an issue, use the `1-2-Backups_as_Code-Git-
 +
 The playbook uses the `base_fabric` role, which dispatches to the correct vendor-specific task file based on each device's `ansible_network_os`.
 
-. **Test** -- Launch the `1-4-Base_Configs-Test` job template to validate the deployment.
+. **Test** -- Launches the `1-4-Base_Configs-Test` job template to validate the deployment.
 The test playbook checks:
 +
 * Management interfaces are up
