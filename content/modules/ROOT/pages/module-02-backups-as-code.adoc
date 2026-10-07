@@ -76,7 +76,7 @@ image::gitea_leaf3.png[Leaf3,align="center",link=self,window=_blank]
 
 Below are the key code snippets with explanations.
 
-=== Play 1: Backup Router Configs to Gitea in Branches
+=== Play 1: Backup Switch Configs to Gitea in Branches
 
 ==== Capturing a Timestamp
 
