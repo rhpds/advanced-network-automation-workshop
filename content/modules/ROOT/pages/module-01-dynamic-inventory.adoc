@@ -316,19 +316,16 @@ Syncing pulls the latest device data from NetBox into the Automation Controller'
 . Ensure that your inventory sync is a success. If it fails, check the API Token that was pasted into the credentials.
 
 image::inventory_source.png[Source,align="center",link=self,window=_blank]
-+
+
 At this point there should be groups and hosts available.
-+
 **Groups**
-+
 image::netbox_groups.png[Groups,align="center",link=self,window=_blank]
-+
+
 **Hosts**
-+
 image::netbox_hosts.png[Hosts,align="center",link=self,window=_blank]
-+
-. Take a look at the `netbox_inventory.yml` file from the *VSCode* tab. The credentials needed to log into Netbox are read in automatically as environment variables from the `Netbox Credential`.
-+
+
+Take a look at the `netbox_inventory.yml` file from the *VSCode* tab. The credentials needed to log into Netbox are read in automatically as environment variables from the `Netbox Credential`.
+
 [source,yaml]
 ----
 ---
