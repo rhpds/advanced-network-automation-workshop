@@ -821,9 +821,9 @@
     validate_certs: "{{ controller_verify_ssl | default(false) }}"
 
 # ── Workflows ────────────────────────────────────────────────────────────────────
-- name: "Workflow — 1-3-Network-Complaince-Workflow"
+- name: "Workflow — 1-3-Network-Compliance-Workflow"
   ansible.controller.workflow_job_template:
-    name: "1-3-Network-Complaince-Workflow"
+    name: "1-3-Network-Compliance-Workflow"
     organization: "Red Hat network organization"
     inventory: "Workshop Inventory"
     state: present
@@ -835,7 +835,7 @@
 - name: "Node — Compliance Run"
   ansible.controller.workflow_job_template_node:
     identifier: "Compliance Run"
-    workflow: "1-3-Network-Complaince-Workflow"
+    workflow: "1-3-Network-Compliance-Workflow"
     unified_job_template: "1-3-Network_Compliance-Run"
     organization: "Red Hat network organization"
     state: present
@@ -847,7 +847,7 @@
 - name: "Node — Human Approval"
   ansible.controller.workflow_job_template_node:
     identifier: "Human Approval"
-    workflow: "1-3-Network-Complaince-Workflow"
+    workflow: "1-3-Network-Compliance-Workflow"
     organization: "Red Hat network organization"
     approval_node:
       name: "Human Approval"
@@ -861,7 +861,7 @@
 - name: "Link — Human Approval to Compliance Run"
   ansible.controller.workflow_job_template_node:
     identifier: "Human Approval"
-    workflow: "1-3-Network-Complaince-Workflow"
+    workflow: "1-3-Network-Compliance-Workflow"
     organization: "Red Hat network organization"
     # The approval_node dictionary has been removed here
     success_nodes:
@@ -876,7 +876,7 @@
 - name: "Node — Compliance Check"
   ansible.controller.workflow_job_template_node:
     identifier: "Compliance Check"
-    workflow: "1-3-Network-Complaince-Workflow"
+    workflow: "1-3-Network-Compliance-Workflow"
     unified_job_template: "1-3-Network_Compliance-Check"
     organization: "Red Hat network organization"
     success_nodes:
