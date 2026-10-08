@@ -11,6 +11,8 @@ Building an EVPN VXLAN fabric follows a deliberate bottom-up order. Before confi
 **Why automate this with Ansible?** +
 Manually configuring base settings across a multi-vendor spine-leaf fabric is tedious and error-prone -- a mistyped VLAN ID on one leaf or an inconsistent loopback address can silently break VXLAN tunneling and take hours to troubleshoot. With Ansible resource modules, you define the intended base configuration once in structured YAML and push it consistently to every device, regardless of vendor. The modules are idempotent, so re-running the playbook corrects any drift without duplicating configuration. And because the same data model works across Arista EOS and Cisco NX-OS, you eliminate the need to maintain separate CLI scripts for each platform -- one playbook, one source of truth, applied uniformly across the entire fabric. This module focuses on automating that base layer using Ansible resource modules.
 
+IMPORTANT: Network devices can only be accessed via SSH from the *Containerlab* terminal tab. Direct SSH to devices is not available from the *AAP Terminal* or *VSCode* tabs.
+
 == Learning objectives
 
 IMPORTANT: A misconfigured VLAN, a missing loopback, or an incorrect /31 address at this stage will silently break underlay adjacencies and prevent overlay tunnels from forming -- and the failure may not surface until two modules later. Getting the base right, and proving it with automated tests, is not optional preparation.

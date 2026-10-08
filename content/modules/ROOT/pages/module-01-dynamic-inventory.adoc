@@ -11,6 +11,8 @@ TIP: You can switch between Instructions, Split screen, and Tabs view using the 
 
 NOTE: Subscribe to our link:https://www.youtube.com/ansibleautomation[Ansible YouTube channel^] to stay connected with the latest Ansible automation content.
 
+IMPORTANT: Network devices can only be accessed via SSH from the *Containerlab* terminal tab. Direct SSH to devices is not available from the *AAP Terminal* or *VSCode* tabs.
+
 == Learning objectives
 
 By the end of this section, you will be able to:

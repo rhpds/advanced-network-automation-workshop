@@ -5,6 +5,8 @@
 
 This module demonstrates why tuning playbooks for Ansible Automation Platform is critical to automation performance and protection against automation errors. As network fabrics grow, the default execution behavior -- running tasks one host at a time with no error boundaries -- becomes a bottleneck at best and a risk at worst. A playbook that works fine against 6 devices in a lab can overwhelm a controller or cascade failures across hundreds of devices in production if forks, serial execution, and error handling are not configured deliberately. Tuning controls like `forks`, `serial`, `max_fail_percentage`, and `throttle` let you balance speed against safety: pushing configuration fast enough to meet change windows while ensuring that a failure on one device does not propagate unchecked across the entire inventory. This module walks through these settings and shows how small adjustments to playbook execution parameters produce measurable improvements in job runtime, resource consumption, and fault isolation.
 
+IMPORTANT: Network devices can only be accessed via SSH from the *Containerlab* terminal tab. Direct SSH to devices is not available from the *AAP Terminal* or *VSCode* tabs.
+
 == Learning objectives
 
 This section covers:

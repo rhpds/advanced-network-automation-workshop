@@ -8,6 +8,8 @@ Manual compliance audits are slow, error-prone, and impossible to scale. A netwo
 
 Network resource modules make compliance checks straightforward -- by using the `state: replaced` parameter, you can define the intended configuration and let Ansible enforce it across your devices. Running the playbook in **check mode** lets you preview what would change without touching the device, giving you a safe way to audit compliance. When you're ready to remediate, switching to **run mode** applies the changes to the remote devices.
 
+IMPORTANT: Network devices can only be accessed via SSH from the *Containerlab* terminal tab. Direct SSH to devices is not available from the *AAP Terminal* or *VSCode* tabs.
+
 == Learning objectives
 
 By the end of this section, you will be able to:

@@ -8,6 +8,8 @@ The **overlay** is the virtualization layer that runs on top of the underlay. Wh
  +
 The overlay depends on everything built in the previous modules: the **base configuration** provides the VLANs, loopbacks, and interface addressing; the **underlay** provides OSPF reachability and BGP peering. A misconfigured VNI mapping, a missing route target, or a mismatched anycast gateway MAC at this stage will prevent hosts from reaching each other -- but the symptoms will appear as silent connectivity failures between hosts, not as obvious protocol errors on the switches.
 
+IMPORTANT: Network devices can only be accessed via SSH from the *Containerlab* terminal tab. Direct SSH to devices is not available from the *AAP Terminal* or *VSCode* tabs.
+
 == Learning objectives
 
 This section covers:
