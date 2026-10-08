@@ -314,7 +314,7 @@ Syncing pulls the latest device data from NetBox into the Automation Controller'
 * **Cache timeout** -- how long (in seconds) to cache the inventory source results before re-querying
 * **Execution Environment** -- the container image used to run the sync
 --
-+
+
 . Ensure that your inventory sync is a success. If it fails, check the API Token that was pasted into the credentials.
 +
 image::inventory_source.png[Source,align="center",link=self,window=_blank]
@@ -330,7 +330,7 @@ image::netbox_groups.png[Groups,align="center",link=self,window=_blank]
 image::netbox_hosts.png[Hosts,align="center",link=self,window=_blank]
 
 . Take a look at the `netbox_inventory.yml` file from the *VSCode* tab. The credentials needed to log into Netbox are read in automatically as environment variables from the `Netbox Credential`.
-
++
 [source,yaml]
 ----
 ---
@@ -347,7 +347,7 @@ compose:
   ansible_connection: custom_fields.ansible_connection
   ansible_become: custom_fields.ansible_become
 ----
-+
+
 . Lastly, the `ansible.cfg` file will use the auto plugin to invoke the `netbox_inventory.yml` file.
 +
 [source,ini]
