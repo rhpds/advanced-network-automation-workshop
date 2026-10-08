@@ -615,17 +615,28 @@ deploy_netbox() {
   echo "Waiting additional 30 seconds for services to stabilize..." >> /tmp/progress.log
   sleep 30
 
-  # Create admin superuser
+  # Create admin superuser (retry up to 10 times with 10s delay)
   echo "Creating Netbox admin superuser..." >> /tmp/progress.log
-  sudo -u rhel bash -c "
-    cd ${NETBOX_DIR}
-    docker compose exec -T -e DJANGO_SUPERUSER_PASSWORD='admin@123' netbox /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py createsuperuser --noinput --username admin --email admin@example.com
-  " >> /tmp/progress.log 2>&1
+  SUPERUSER_CREATED=false
+  for attempt in {1..10}; do
+    echo "Superuser creation attempt $attempt/10..." >> /tmp/progress.log
+    sudo -u rhel bash -c "
+      cd ${NETBOX_DIR}
+      docker compose exec -T -e DJANGO_SUPERUSER_PASSWORD='admin@123' netbox /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py createsuperuser --noinput --username admin --email admin@example.com
+    " >> /tmp/progress.log 2>&1
 
-  if [[ $? -eq 0 ]]; then
-    echo "Netbox admin superuser created successfully" >> /tmp/progress.log
-  else
-    echo "WARNING: Netbox admin superuser creation failed" >> /tmp/progress.log
+    if [[ $? -eq 0 ]]; then
+      echo "Netbox admin superuser created successfully" >> /tmp/progress.log
+      SUPERUSER_CREATED=true
+      break
+    fi
+
+    echo "Attempt $attempt failed, waiting 10 seconds before retry..." >> /tmp/progress.log
+    sleep 10
+  done
+
+  if [[ "$SUPERUSER_CREATED" != "true" ]]; then
+    echo "ERROR: Netbox admin superuser creation failed after 10 attempts" >> /tmp/progress.log
   fi
 
   echo "Netbox setup complete" >> /tmp/progress.log
