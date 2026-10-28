@@ -34,11 +34,17 @@
       register: clab_inspect
       changed_when: false
 
+    # Older containerlab returns {"containers": [...]}; newer versions
+    # group nodes by lab name: {"<lab>": [...]}.
     - name: Parse container states
+      vars:
+        clab_data: "{{ clab_inspect.stdout | from_json }}"
+        clab_nodes: >-
+          {{ clab_data.containers if 'containers' in clab_data
+             else clab_data.values() | list | flatten(levels=1) }}
       ansible.builtin.set_fact:
         exited_nodes: >-
-          {{ (clab_inspect.stdout | from_json).containers
-             | default([])
+          {{ clab_nodes
              | selectattr('state', 'equalto', 'exited')
              | map(attribute='name')
              | list }}
@@ -93,10 +99,13 @@
       register: netbox_login
       no_log: true
 
+    # Success redirects (302) away from the login page; a bad password
+    # re-renders the form with 200. Cookies aren't checked because uri
+    # doesn't populate them when follow_redirects is none.
     - name: Assert Netbox login succeeded
       ansible.builtin.assert:
         that:
           - netbox_login.status == 302
-          - "'sessionid' in netbox_login.cookies"
+          - "'/login' not in (netbox_login.location | default('/login'))"
         fail_msg: "Netbox web UI login failed for user {{ netbox_user }} (HTTP {{ netbox_login.status }})"
         success_msg: "Netbox web UI login succeeded for user {{ netbox_user }}"
