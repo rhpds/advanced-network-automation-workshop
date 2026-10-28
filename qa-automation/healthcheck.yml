@@ -1,7 +1,8 @@
 ---
 # HEALTHCHECK — Quick environment readiness check
 # Verifies the bastion host is reachable via SSH and the containerlab
-# topology has no exited nodes. Non-destructive: does not modify any
+# topology has no exited nodes, and the Netbox web UI accepts the admin
+# login. Non-destructive: does not modify any
 # lab state. Should complete in under 120 seconds.
 #
 # Exit 0 = healthy, non-zero = unhealthy.
@@ -98,3 +99,55 @@
               - exited_nodes_retry | length == 0
             fail_msg: "Still exited after redeploy: {{ exited_nodes_retry | join(', ') }}"
             success_msg: "All containerlab nodes are running after redeploy"
+
+- name: Netbox web UI login check
+  hosts: clab
+  gather_facts: false
+  become: false
+  vars:
+    netbox_url: http://localhost:8282
+    netbox_user: admin
+    netbox_password: admin@123  # notsecret
+  tasks:
+    - name: Fetch Netbox login page
+      ansible.builtin.uri:
+        url: "{{ netbox_url }}/login/"
+        return_content: true
+        status_code: 200
+      register: netbox_login_page
+      until: netbox_login_page.status == 200
+      retries: 3
+      delay: 10
+
+    - name: Extract CSRF token from login form
+      ansible.builtin.set_fact:
+        netbox_csrf_token: >-
+          {{ netbox_login_page.content
+             | regex_search('name="csrfmiddlewaretoken" value="([^"]+)"', '\1')
+             | first }}
+
+    - name: Submit Netbox login form
+      ansible.builtin.uri:
+        url: "{{ netbox_url }}/login/"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          csrfmiddlewaretoken: "{{ netbox_csrf_token }}"
+          username: "{{ netbox_user }}"
+          password: "{{ netbox_password }}"
+          next: /
+        headers:
+          Cookie: "{{ netbox_login_page.cookies_string }}"
+          Referer: "{{ netbox_url }}/login/"
+        follow_redirects: none
+        status_code: [200, 302]
+      register: netbox_login
+      no_log: true
+
+    - name: Assert Netbox login succeeded
+      ansible.builtin.assert:
+        that:
+          - netbox_login.status == 302
+          - "'sessionid' in netbox_login.cookies"
+        fail_msg: "Netbox web UI login failed for user {{ netbox_user }} (HTTP {{ netbox_login.status }})"
+        success_msg: "Netbox web UI login succeeded for user {{ netbox_user }}"
