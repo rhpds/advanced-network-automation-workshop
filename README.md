@@ -41,3 +41,17 @@ Claude will walk you through the entire content lifecycle — from intake and sp
 3. `cd advanced-network-automation-workshop`
 4. Start Claude CLI: `claude`
 5. Run `/rhdp-publishing-house` — and you're off!
+
+## Useful commands
+
+### Check memory pressure on the containerlab VM
+
+Run on the containerlab VM to see whether the topology and Netbox are competing for memory:
+
+```
+free -h                                            # overall memory and swap use
+docker stats --no-stream                           # per-container memory use
+sudo dmesg -T | grep -i -E 'oom|killed process'    # processes killed by the OOM killer
+```
+
+If `dmesg` shows OOM kills, cap the Netbox stack with `mem_limit` and `oom_score_adj` in `netbox-docker/docker-compose.override.yml` so the kernel reclaims memory from Netbox before the network nodes.

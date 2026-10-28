@@ -523,7 +523,10 @@ push_ssh_key_to_control || echo "push_ssh_key_to_control failed" >> /tmp/progres
 setup_switch_access || echo "setup_switch_access failed" >> /tmp/progress.log
 install_clab_resume_service || echo "install_clab_resume_service failed" >> /tmp/progress.log
 deploy_topology || echo "deploy_topology failed" >> /tmp/progress.log
-verify_topology_nodes || echo "verify_topology_nodes failed" >> /tmp/progress.log
+# Watch topology nodes in the background so Gitea/Netbox setup overlaps the
+# watch window; waited on at the end of the script.
+( verify_topology_nodes || echo "verify_topology_nodes failed" >> /tmp/progress.log ) &
+VERIFY_TOPOLOGY_PID=$!
 
 # ---------------------------------------------------------------------------
 # Install and configure Gitea
@@ -701,5 +704,8 @@ deploy_netbox() {
 
 deploy_netbox || echo "deploy_netbox failed" >> /tmp/progress.log
 install_netbox_resume_service || echo "install_netbox_resume_service failed" >> /tmp/progress.log
+
+echo "Waiting for containerlab node verification to finish..." >> /tmp/progress.log
+wait "${VERIFY_TOPOLOGY_PID}"
 
 echo "setup-containerlab.sh complete" >> /tmp/progress.log
