@@ -236,15 +236,18 @@ GITEA_HOST="containerlab"
 GITEA_PORT="8181"
 GITEA_URL="http://${GITEA_USER}:${GITEA_PASSWORD}@${GITEA_HOST}:${GITEA_PORT}/${GITEA_USER}/${GITEA_REPO}.git"
 
-# Wait for Gitea to be available on containerlab
-echo "Waiting for Gitea to be available at ${GITEA_HOST}:${GITEA_PORT}..." >> /tmp/progress.log
-for i in {1..30}; do
-  if curl -s -f "http://${GITEA_HOST}:${GITEA_PORT}" > /dev/null 2>&1; then
-    echo "Gitea is reachable" >> /tmp/progress.log
+# Wait for the Gitea repo (not just the Gitea UI) on containerlab.
+# setup-containerlab.sh creates the user and repo a few seconds after the UI
+# comes up, so cloning as soon as the UI answers can race and get "Not found".
+echo "Waiting for Gitea repo ${GITEA_USER}/${GITEA_REPO} at ${GITEA_HOST}:${GITEA_PORT}..." >> /tmp/progress.log
+for i in {1..120}; do
+  if curl -s -f -u "${GITEA_USER}:${GITEA_PASSWORD}" \
+      "http://${GITEA_HOST}:${GITEA_PORT}/api/v1/repos/${GITEA_USER}/${GITEA_REPO}" > /dev/null 2>&1; then
+    echo "Gitea repo is available" >> /tmp/progress.log
     break
   fi
-  echo "Waiting for Gitea... (attempt $i/30)" >> /tmp/progress.log
-  sleep 2
+  echo "Waiting for Gitea repo... (attempt $i/120)" >> /tmp/progress.log
+  sleep 5
 done
 
 # Remove existing workshop directory if it exists
