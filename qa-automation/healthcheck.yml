@@ -2,8 +2,9 @@
 # HEALTHCHECK — Quick environment readiness check
 # Verifies the bastion host is reachable via SSH and the containerlab
 # topology has no exited nodes, and the Netbox web UI accepts the admin
-# login. Non-destructive: does not modify any
-# lab state. Should complete in under 120 seconds.
+# login. Does not modify lab state, except to redeploy the containerlab
+# topology if nodes have exited. Should complete in under 120 seconds when
+# healthy; a redeploy adds a 300-second settle wait.
 #
 # Exit 0 = healthy, non-zero = unhealthy.
 
@@ -42,7 +43,7 @@
   become: true
   vars:
     clab_topo: /home/lab-user/2_multi_vendor_vxlan/vxlan.base.clab.yml
-    settle_seconds: 120
+    settle_seconds: 300
   tasks:
     - name: Initial topology check
       block:
