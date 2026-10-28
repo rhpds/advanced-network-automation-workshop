@@ -55,3 +55,14 @@ sudo dmesg -T | grep -i -E 'oom|killed process'    # processes killed by the OOM
 ```
 
 If `dmesg` shows OOM kills, cap the Netbox stack with `mem_limit` and `oom_score_adj` in `netbox-docker/docker-compose.override.yml` so the kernel reclaims memory from Netbox before the network nodes.
+
+### Inspect or redeploy the containerlab topology
+
+Run on the containerlab VM:
+
+```
+sudo clab inspect /home/lab-user/2_multi_vendor_vxlan     # show node names, state, and management IPs
+sudo clab redeploy /home/lab-user/2_multi_vendor_vxlan    # destroy and recreate all nodes
+```
+
+`redeploy` recreates every node from its startup config, so it wipes any configuration pushed during the lab. Don't run it while a student is mid-lab.
