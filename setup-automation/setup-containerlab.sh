@@ -671,6 +671,14 @@ deploy_netbox() {
     sudo -u rhel bash -c "cd ${NETBOX_DIR} && docker compose logs netbox --tail=50" >> /tmp/progress.log 2>&1
   fi
 
+  # Start netbox-worker and netbox-housekeeping. They wait for netbox to be
+  # healthy, so earlier `up` runs skip them if netbox was still migrating.
+  echo "Running docker compose up -d to start NetBox worker and housekeeping..." >> /tmp/progress.log
+  sudo -u rhel bash -c "
+    cd ${NETBOX_DIR}
+    docker compose up -d
+  " >> /tmp/progress.log 2>&1
+
   # Additional wait to ensure services are stable
   echo "Waiting additional 30 seconds for services to stabilize..." >> /tmp/progress.log
   sleep 30

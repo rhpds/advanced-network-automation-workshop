@@ -2,3 +2,8 @@ services:
   netbox:
     ports:
       - "8282:8080"
+    # First start runs database migrations, which can take several minutes.
+    # Failed checks during start_period don't count, so netbox isn't marked
+    # unhealthy (blocking netbox-worker/housekeeping) before it's ready.
+    healthcheck:
+      start_period: 600s
