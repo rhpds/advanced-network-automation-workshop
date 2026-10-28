@@ -1,10 +1,10 @@
 ---
 # HEALTHCHECK — Quick environment readiness check
-# Verifies the bastion host is reachable via SSH and the containerlab
-# topology has no exited nodes, and the Netbox web UI accepts the admin
-# login. Does not modify lab state, except to redeploy the containerlab
-# topology if nodes have exited. Should complete in under 120 seconds when
-# healthy; a redeploy adds a 300-second settle wait.
+# Verifies the containerlab topology has no exited nodes and the Netbox
+# web UI accepts the admin login. Read-only: reports problems but never
+# remediates them (a containerlab redeploy would wipe student device
+# configs). Recovery lives in setup-automation/setup-containerlab.sh.
+# Should complete in under 60 seconds.
 #
 # Exit 0 = healthy, non-zero = unhealthy.
 
@@ -12,14 +12,6 @@
   hosts: localhost
   gather_facts: false
   tasks:
-    - name: Add bastion host
-      ansible.builtin.add_host:
-        name: "{{ lookup('ansible.builtin.env', 'BASTION_HOST') }}"
-        ansible_ssh_host: "{{ lookup('ansible.builtin.env', 'BASTION_HOST') }}"
-        ansible_ssh_port: "{{ lookup('ansible.builtin.env', 'BASTION_PORT') }}"
-        ansible_ssh_user: "{{ lookup('ansible.builtin.env', 'BASTION_USER') }}"
-        ansible_ssh_pass: "{{ lookup('ansible.builtin.env', 'BASTION_PASSWORD') }}"
-
     - name: Add containerlab host
       ansible.builtin.add_host:
         name: containerlab
@@ -29,77 +21,34 @@
         ansible_ssh_pass: "{{ lookup('ansible.builtin.env', 'BASTION_PASSWORD') }}"
         groups: clab
 
-- name: Healthcheck
-  hosts: all:!localhost:!clab
-  gather_facts: false
-  become: false
-  tasks:
-    - name: Verify SSH connectivity
-      ansible.builtin.ping:
-
 - name: Containerlab topology check
   hosts: clab
   gather_facts: false
   become: true
   vars:
     clab_topo: /home/lab-user/2_multi_vendor_vxlan/vxlan.base.clab.yml
-    settle_seconds: 300
   tasks:
-    - name: Initial topology check
-      block:
-        - name: Run containerlab inspect
-          ansible.builtin.command:
-            cmd: "containerlab inspect -t {{ clab_topo }} --format json"
-          register: clab_inspect
-          changed_when: false
+    - name: Run containerlab inspect
+      ansible.builtin.command:
+        cmd: "containerlab inspect -t {{ clab_topo }} --format json"
+      register: clab_inspect
+      changed_when: false
 
-        - name: Parse container states
-          ansible.builtin.set_fact:
-            exited_nodes: >-
-              {{ (clab_inspect.stdout | from_json).containers
-                 | default([])
-                 | selectattr('state', 'equalto', 'exited')
-                 | map(attribute='name')
-                 | list }}
+    - name: Parse container states
+      ansible.builtin.set_fact:
+        exited_nodes: >-
+          {{ (clab_inspect.stdout | from_json).containers
+             | default([])
+             | selectattr('state', 'equalto', 'exited')
+             | map(attribute='name')
+             | list }}
 
-        - name: Assert no nodes are exited
-          ansible.builtin.assert:
-            that:
-              - exited_nodes | length == 0
-            fail_msg: "Exited containerlab nodes: {{ exited_nodes | join(', ') }}"
-            success_msg: "All containerlab nodes are running"
-
-      rescue:
-        - name: Redeploy topology to recover exited nodes
-          ansible.builtin.command:
-            cmd: "containerlab redeploy -t {{ clab_topo }}"
-          changed_when: true
-
-        - name: Wait for nodes to settle
-          ansible.builtin.pause:
-            seconds: "{{ settle_seconds }}"
-
-        - name: Re-inspect after redeploy
-          ansible.builtin.command:
-            cmd: "containerlab inspect -t {{ clab_topo }} --format json"
-          register: clab_reinspect
-          changed_when: false
-
-        - name: Parse container states after redeploy
-          ansible.builtin.set_fact:
-            exited_nodes_retry: >-
-              {{ (clab_reinspect.stdout | from_json).containers
-                 | default([])
-                 | selectattr('state', 'equalto', 'exited')
-                 | map(attribute='name')
-                 | list }}
-
-        - name: Assert no nodes are exited after redeploy
-          ansible.builtin.assert:
-            that:
-              - exited_nodes_retry | length == 0
-            fail_msg: "Still exited after redeploy: {{ exited_nodes_retry | join(', ') }}"
-            success_msg: "All containerlab nodes are running after redeploy"
+    - name: Assert no nodes are exited
+      ansible.builtin.assert:
+        that:
+          - exited_nodes | length == 0
+        fail_msg: "Exited containerlab nodes: {{ exited_nodes | join(', ') }}"
+        success_msg: "All containerlab nodes are running"
 
 - name: Netbox web UI login check
   hosts: clab
@@ -115,10 +64,8 @@
         url: "{{ netbox_url }}/login/"
         return_content: true
         status_code: 200
+        timeout: 10
       register: netbox_login_page
-      until: netbox_login_page.status == 200
-      retries: 3
-      delay: 10
 
     - name: Extract CSRF token from login form
       ansible.builtin.set_fact:
@@ -142,6 +89,7 @@
           Referer: "{{ netbox_url }}/login/"
         follow_redirects: none
         status_code: [200, 302]
+        timeout: 10
       register: netbox_login
       no_log: true
 

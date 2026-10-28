@@ -453,6 +453,62 @@ deploy_topology() {
 }
 
 # ---------------------------------------------------------------------------
+# Verify no topology nodes have exited; redeploy once if any have.
+# Recovery lives here (not in qa-automation/healthcheck.yml) because a
+# redeploy wipes device configs and must never run against a live lab.
+# ---------------------------------------------------------------------------
+list_exited_nodes() {
+  containerlab inspect -t vxlan.base.clab.yml --format json 2>/dev/null | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+nodes = data.get("containers", []) if "containers" in data else [n for v in data.values() for n in v]
+print(" ".join(n["name"] for n in nodes if n.get("state") == "exited"))
+'
+}
+
+# Poll for exited nodes every $2 seconds for up to $1 seconds.
+# Returns 1 as soon as any node exits, 0 if all stay up for the full window.
+watch_for_exited_nodes() {
+  local window=$1
+  local interval=$2
+  local start=${SECONDS}
+  local exited
+
+  while (( SECONDS - start < window )); do
+    exited=$(list_exited_nodes)
+    if [[ -n "${exited}" ]]; then
+      echo "Exited containerlab nodes after $(( SECONDS - start ))s: ${exited}" >> /tmp/progress.log
+      return 1
+    fi
+    sleep "${interval}"
+  done
+}
+
+verify_topology_nodes() {
+  local topo_dir="/home/lab-user/2_multi_vendor_vxlan"
+  local watch_window=180
+  local poll_interval=15
+
+  cd "${topo_dir}" || return 1
+
+  echo "Watching containerlab nodes for ${watch_window}s..." >> /tmp/progress.log
+  if watch_for_exited_nodes "${watch_window}" "${poll_interval}"; then
+    echo "All containerlab nodes stayed running" >> /tmp/progress.log
+    return 0
+  fi
+
+  echo "Redeploying containerlab topology..." >> /tmp/progress.log
+  containerlab redeploy -t vxlan.base.clab.yml >> /tmp/progress.log 2>&1
+
+  echo "Watching containerlab nodes for ${watch_window}s after redeploy..." >> /tmp/progress.log
+  if ! watch_for_exited_nodes "${watch_window}" "${poll_interval}"; then
+    echo "ERROR: Containerlab nodes still exiting after redeploy" >> /tmp/progress.log
+    return 1
+  fi
+  echo "All containerlab nodes stayed running after redeploy" >> /tmp/progress.log
+}
+
+# ---------------------------------------------------------------------------
 # Run each step independently — failures in one must not block the rest.
 # install_rpms runs before push_ssh_key_to_control because sshpass is needed.
 # ---------------------------------------------------------------------------
@@ -467,6 +523,7 @@ push_ssh_key_to_control || echo "push_ssh_key_to_control failed" >> /tmp/progres
 setup_switch_access || echo "setup_switch_access failed" >> /tmp/progress.log
 install_clab_resume_service || echo "install_clab_resume_service failed" >> /tmp/progress.log
 deploy_topology || echo "deploy_topology failed" >> /tmp/progress.log
+verify_topology_nodes || echo "verify_topology_nodes failed" >> /tmp/progress.log
 
 # ---------------------------------------------------------------------------
 # Install and configure Gitea
