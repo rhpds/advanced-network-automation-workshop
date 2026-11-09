@@ -539,24 +539,3 @@
         aap_name: 1-2-Backups_as_Code-Git-Restore
         aap_extra_vars:
           branch_name: "{{ final_configs_branch }}"
-
-- name: Wait for convergence after final restore
-  hosts: localhost
-  gather_facts: false
-  tasks:
-    - name: Pause for routing protocols to converge
-      ansible.builtin.pause:
-        seconds: 60
-
-- name: "Final: Validate host reachability after restoring final_configs"
-  hosts: clab
-  gather_facts: false
-  become: true
-  tasks:
-    - name: Validate host reachability
-      ansible.builtin.include_tasks: tasks/validate_hosts.yml
-
-    - name: Remove AAP curl config
-      ansible.builtin.file:
-        path: "{{ aap_curlrc }}"
-        state: absent
