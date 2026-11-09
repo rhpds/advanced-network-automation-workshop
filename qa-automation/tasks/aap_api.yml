@@ -9,6 +9,15 @@
 #   aap_body      – optional dict sent as JSON
 #   aap_ok_codes  – accepted HTTP codes (default [200, 201, 202, 204])
 #   aap_raw       – true to skip JSON parsing (e.g. job stdout)
+#   aap_retries   – attempts while AAP is unavailable (default 20, 15s apart)
+#
+# Retries while AAP is starting or a backend container is restarting:
+# HTTP 502/503/504 from the gateway's nginx, or curl failing to connect
+# (rc 7), getting an empty reply (52), or a dropped connection (35/56).
+# A 502 means nginx could not reach the backend, so a retried POST was not
+# processed the first time. Timeouts (rc 28) are retried for GET only: a
+# POST that timed out may still have run, and repeating it could launch a
+# job twice.
 #
 # Sets: aap_status (int), aap_json (dict), aap_text (str)
 
@@ -21,6 +30,14 @@
          + [aap_api_url ~ aap_path] }}
   register: _aap_raw_result
   changed_when: aap_method | default('GET') != 'GET'
+  until: >-
+    (_aap_raw_result.rc == 0
+     and _aap_raw_result.stdout.rsplit('\n', 1)[-1] not in ['502', '503', '504'])
+    or (_aap_raw_result.rc not in [7, 35, 52, 56]
+        and not (_aap_raw_result.rc == 28 and aap_method | default('GET') == 'GET')
+        and _aap_raw_result.rc != 0)
+  retries: "{{ aap_retries | default(20) }}"
+  delay: 15
 
 - name: "AAP API parse response for {{ aap_path }}"
   vars:

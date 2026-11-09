@@ -121,7 +121,15 @@
           header = "Accept: application/json"
       no_log: true
 
-    - name: Verify AAP Controller API is reachable
+    # The lab may still be starting (or resuming) when e2e runs; the
+    # gateway's nginx answers 502 until the controller backend is up.
+    - name: Wait up to 20 minutes for the AAP Controller API
+      ansible.builtin.include_tasks: tasks/aap_api.yml
+      vars:
+        aap_path: /ping/
+        aap_retries: 80
+
+    - name: Verify AAP Controller API accepts the admin login
       ansible.builtin.include_tasks: tasks/aap_api.yml
       vars:
         aap_path: /me/

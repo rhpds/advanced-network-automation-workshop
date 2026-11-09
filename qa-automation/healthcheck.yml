@@ -140,6 +140,13 @@
       changed_when: false
       failed_when: false
       no_log: true
+      # Retry while the gateway's nginx returns 502/503/504 or the
+      # connection is refused/dropped (AAP starting or restarting).
+      until: >-
+        aap_me.rc not in [7, 28, 35, 52, 56]
+        and (aap_me.stdout_lines | last | default('000')) not in ['502', '503', '504']
+      retries: 6
+      delay: 10
 
     - name: Assert AAP Controller login succeeded
       vars:
