@@ -539,3 +539,8 @@
         aap_name: 1-2-Backups_as_Code-Git-Restore
         aap_extra_vars:
           branch_name: "{{ final_configs_branch }}"
+
+    - name: Remove AAP curl config (holds the admin password)
+      ansible.builtin.file:
+        path: "{{ aap_curlrc }}"
+        state: absent
