@@ -524,22 +524,6 @@
         aap_extra_vars:
           branch_name: "{{ vxlan_configs_branch }}"
 
-    - name: "Step 3: Restore {{ initial_config_branch }}"
-      ansible.builtin.include_tasks: tasks/aap_run.yml
-      vars:
-        aap_kind: job_templates
-        aap_name: 1-2-Backups_as_Code-Git-Restore
-        aap_extra_vars:
-          branch_name: "{{ initial_config_branch }}"
-
-    - name: "Step 4: Restore {{ final_configs_branch }}"
-      ansible.builtin.include_tasks: tasks/aap_run.yml
-      vars:
-        aap_kind: job_templates
-        aap_name: 1-2-Backups_as_Code-Git-Restore
-        aap_extra_vars:
-          branch_name: "{{ final_configs_branch }}"
-
     - name: Remove AAP curl config (holds the admin password)
       ansible.builtin.file:
         path: "{{ aap_curlrc }}"
