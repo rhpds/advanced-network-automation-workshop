@@ -1,0 +1,30 @@
+---
+# Reusable task list: create/replace a survey on a job or workflow template
+# and enable it — the "as code" equivalent of the survey steps students do
+# by hand in modules 1-3 and 1-7.
+#
+# Expected vars:
+#   aap_kind        – job_templates or workflow_job_templates
+#   aap_name        – template name
+#   aap_survey_spec – list of survey questions (AAP survey_spec "spec" format)
+
+- name: "Resolve template for survey: {{ aap_name }}"
+  ansible.builtin.include_tasks: aap_lookup.yml
+
+- name: "Write survey spec on {{ aap_name }}"
+  ansible.builtin.include_tasks: aap_api.yml
+  vars:
+    aap_path: "/{{ aap_kind }}/{{ aap_object_id }}/survey_spec/"
+    aap_method: POST
+    aap_body:
+      name: ""
+      description: ""
+      spec: "{{ aap_survey_spec }}"
+
+- name: "Enable survey on {{ aap_name }}"
+  ansible.builtin.include_tasks: aap_api.yml
+  vars:
+    aap_path: "/{{ aap_kind }}/{{ aap_object_id }}/"
+    aap_method: PATCH
+    aap_body:
+      survey_enabled: true

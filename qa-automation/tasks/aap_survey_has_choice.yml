@@ -1,0 +1,25 @@
+---
+# Reusable task list: assert a job template's survey offers a given choice.
+#
+# Expected vars:
+#   aap_name   – job template name
+#   aap_choice – value that must appear in the first question's choices
+
+- name: "Resolve {{ aap_name }}"
+  ansible.builtin.include_tasks: aap_lookup.yml
+  vars:
+    aap_kind: job_templates
+
+- name: "Fetch survey of {{ aap_name }}"
+  ansible.builtin.include_tasks: aap_api.yml
+  vars:
+    aap_path: "/job_templates/{{ aap_object_id }}/survey_spec/"
+
+- name: "Assert survey offers branch: {{ aap_name ~ ' / ' ~ aap_choice }}"
+  vars:
+    _choices: "{{ aap_json.spec[0].choices | default([]) }}"
+  ansible.builtin.assert:
+    that:
+      - aap_choice in (_choices if _choices is not string else _choices.split('\n'))
+    fail_msg: "{{ aap_name }} survey choices {{ _choices }} do not include {{ aap_choice }}"
+    success_msg: "{{ aap_name }} survey offers {{ aap_choice }}"

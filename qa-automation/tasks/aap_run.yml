@@ -1,0 +1,138 @@
+---
+# Reusable task list: launch an AAP job template, workflow, or inventory
+# source sync by name, optionally approve its approval node, wait for it to
+# finish, and assert the final status.
+#
+# Expected vars:
+#   aap_kind           – job_templates | workflow_job_templates | inventory_sources
+#   aap_name           – template / inventory source name
+#   aap_extra_vars     – dict passed at launch (default {}); must match the survey
+#   aap_expect         – accepted final statuses (default ['successful'])
+#   aap_approve        – true to approve the workflow's pending approval node
+#   aap_expect_nodes   – optional {node identifier: status} for workflows,
+#                        e.g. {Test: failed, Restore: successful}
+#   aap_timeout        – seconds to wait (default 1800)
+#
+# Sets: aap_job (final job JSON; .artifacts holds set_stats data)
+
+- name: "Resolve {{ aap_name }}"
+  ansible.builtin.include_tasks: aap_lookup.yml
+
+- name: "Launch {{ aap_name }}"
+  ansible.builtin.include_tasks: aap_api.yml
+  vars:
+    aap_path: "/{{ aap_kind }}/{{ aap_object_id }}/{{ 'update' if aap_kind == 'inventory_sources' else 'launch' }}/"
+    aap_method: POST
+    aap_body: "{{ {} if aap_kind == 'inventory_sources' else {'extra_vars': aap_extra_vars | default({})} }}"
+
+- name: "Record launched job for {{ aap_name }}"
+  ansible.builtin.set_fact:
+    _aap_run_id: "{{ aap_json.id }}"
+    _aap_run_kind: >-
+      {{ {'job_templates': 'jobs',
+          'workflow_job_templates': 'workflow_jobs',
+          'inventory_sources': 'inventory_updates'}[aap_kind] }}
+
+- name: "Launched {{ aap_name }}"
+  ansible.builtin.debug:
+    msg: "{{ aap_name }} → {{ _aap_run_kind }}/{{ _aap_run_id }}"
+
+- name: "Approve workflow approval node: {{ aap_name }}"
+  when: aap_approve | default(false)
+  block:
+    - name: "Poll for a pending approval: {{ aap_name }}"
+      ansible.builtin.command:
+        argv: "{{ aap_curl_base + [aap_api_url ~ '/workflow_jobs/' ~ _aap_run_id ~ '/workflow_nodes/?page_size=100'] }}"
+      register: _aap_nodes
+      changed_when: false
+      until: >-
+        _aap_nodes.stdout[:1] == '{' and
+        (_aap_nodes.stdout | from_json).results
+          | selectattr('summary_fields.job', 'defined')
+          | map(attribute='summary_fields.job')
+          | selectattr('type', 'equalto', 'workflow_approval')
+          | selectattr('status', 'equalto', 'pending')
+          | list | length > 0
+      retries: "{{ ((aap_timeout | default(1800) | int) / 15) | int }}"
+      delay: 15
+
+    - name: "Approve pending approval in {{ aap_name }}"
+      ansible.builtin.include_tasks: aap_api.yml
+      vars:
+        _approval_id: >-
+          {{ ((_aap_nodes.stdout | from_json).results
+              | selectattr('summary_fields.job', 'defined')
+              | map(attribute='summary_fields.job')
+              | selectattr('type', 'equalto', 'workflow_approval')
+              | selectattr('status', 'equalto', 'pending')
+              | first).id }}
+        aap_path: "/workflow_approvals/{{ _approval_id }}/approve/"
+        aap_method: POST
+
+- name: "Wait for job to finish: {{ aap_name }}"
+  ansible.builtin.command:
+    argv: "{{ aap_curl_base + [aap_api_url ~ '/' ~ _aap_run_kind ~ '/' ~ _aap_run_id ~ '/'] }}"
+  register: _aap_poll
+  changed_when: false
+  until: >-
+    _aap_poll.stdout[:1] == '{' and
+    (_aap_poll.stdout | from_json).status | default('') in ['successful', 'failed', 'error', 'canceled']
+  retries: "{{ ((aap_timeout | default(1800) | int) / 15) | int }}"
+  delay: 15
+
+- name: "Record result of {{ aap_name }}"
+  ansible.builtin.set_fact:
+    aap_job: "{{ _aap_poll.stdout | from_json }}"
+
+- name: "Collect workflow node results: {{ aap_name }}"
+  when: _aap_run_kind == 'workflow_jobs'
+  block:
+    - name: "Fetch workflow nodes of {{ aap_name }}"
+      ansible.builtin.include_tasks: aap_api.yml
+      vars:
+        aap_path: "/workflow_jobs/{{ _aap_run_id }}/workflow_nodes/?page_size=100"
+
+    - name: "Map workflow node status for {{ aap_name }}"
+      ansible.builtin.set_fact:
+        aap_node_status: >-
+          {{ dict(aap_json.results
+                  | map(attribute='identifier')
+                  | zip(aap_json.results
+                        | map(attribute='summary_fields')
+                        | map(attribute='job', default={'status': 'not run'})
+                        | map(attribute='status'))) }}
+
+    - name: "Workflow node results for {{ aap_name }}"
+      ansible.builtin.debug:
+        var: aap_node_status
+
+- name: "Fetch job output after unexpected result: {{ aap_name }}"
+  when:
+    - aap_job.status not in aap_expect | default(['successful'])
+    - _aap_run_kind != 'workflow_jobs'
+  ansible.builtin.include_tasks: aap_api.yml
+  vars:
+    aap_path: "/{{ _aap_run_kind }}/{{ _aap_run_id }}/stdout/?format=txt"
+    aap_raw: true
+
+- name: "Assert job finished as expected: {{ aap_name }}"
+  ansible.builtin.assert:
+    that:
+      - aap_job.status in aap_expect | default(['successful'])
+    fail_msg: >-
+      {{ aap_name }} ({{ _aap_run_kind }}/{{ _aap_run_id }}) finished '{{ aap_job.status }}',
+      expected {{ aap_expect | default(['successful']) | join(' or ') }}.
+      {{ ('Nodes: ' ~ (aap_node_status | to_json)) if _aap_run_kind == 'workflow_jobs'
+         else ('Output tail: ' ~ aap_text[-3000:]) }}
+    success_msg: "{{ aap_name }} finished '{{ aap_job.status }}'"
+
+- name: "Assert workflow node results for {{ aap_name }}"
+  when: aap_expect_nodes is defined
+  ansible.builtin.assert:
+    that:
+      - aap_node_status[item.key] | default('missing') == item.value
+    fail_msg: "{{ aap_name }} node '{{ item.key }}' was '{{ aap_node_status[item.key] | default('missing') }}', expected '{{ item.value }}'"
+    success_msg: "{{ aap_name }} node '{{ item.key }}' was '{{ item.value }}'"
+  loop: "{{ aap_expect_nodes | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"

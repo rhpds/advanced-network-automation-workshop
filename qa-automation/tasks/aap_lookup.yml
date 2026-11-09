@@ -1,0 +1,26 @@
+---
+# Reusable task list: resolve an AAP object id by name.
+#
+# Expected vars:
+#   aap_kind – API collection, e.g. job_templates, workflow_job_templates,
+#              inventory_sources, credentials
+#   aap_name – exact object name
+#
+# Sets: aap_object_id, aap_object (full JSON of the match)
+
+- name: "Look up AAP object: {{ aap_kind ~ '/' ~ aap_name }}"
+  ansible.builtin.include_tasks: aap_api.yml
+  vars:
+    aap_path: "/{{ aap_kind }}/?name={{ aap_name | urlencode }}"
+
+- name: "Assert exactly one match: {{ aap_kind ~ '/' ~ aap_name }}"
+  ansible.builtin.assert:
+    that:
+      - aap_json.count | default(0) == 1
+    fail_msg: "Expected 1 {{ aap_kind }} named '{{ aap_name }}', found {{ aap_json.count | default(0) }}"
+    quiet: true
+
+- name: "Record id of '{{ aap_name }}'"
+  ansible.builtin.set_fact:
+    aap_object_id: "{{ aap_json.results[0].id }}"
+    aap_object: "{{ aap_json.results[0] }}"

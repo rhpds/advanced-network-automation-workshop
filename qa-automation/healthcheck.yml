@@ -1,7 +1,8 @@
 ---
 # HEALTHCHECK — Quick environment readiness check
-# Verifies the containerlab topology has no exited nodes and the Netbox
-# web UI accepts the admin login. Read-only: reports problems but never
+# Verifies the containerlab topology has no exited nodes, the Netbox
+# web UI accepts the admin login, and AAP Controller, Gitea, and VS Code
+# (code-server) are reachable with the workshop credentials. Read-only: reports problems but never
 # remediates them (a containerlab redeploy would wipe student device
 # configs). Recovery lives in setup-automation/setup-containerlab.sh.
 # Should complete in under 60 seconds.
@@ -109,3 +110,101 @@
           - "'/login' not in (netbox_login.location | default('/login'))"
         fail_msg: "Netbox web UI login failed for user {{ netbox_user }} (HTTP {{ netbox_login.status }})"
         success_msg: "Netbox web UI login succeeded for user {{ netbox_user }}"
+
+# All service checks run from the containerlab VM, which resolves the
+# other lab VMs (control, vscode) by short hostname.
+- name: AAP Controller API login check
+  hosts: clab
+  gather_facts: false
+  become: false
+  vars:
+    aap_url: https://control
+    aap_user: admin
+    aap_password: ansible123!  # notsecret
+  tasks:
+    # curl instead of uri: uri hangs against the AAP 2.6 gateway
+    # (see lab-automation/playbooks/aap_bootstrap.yml).
+    - name: Query Controller /me endpoint as admin
+      ansible.builtin.command:
+        argv:
+          - curl
+          - -sk
+          - --max-time
+          - "10"
+          - -u
+          - "{{ aap_user }}:{{ aap_password }}"
+          - -w
+          - "\n%{http_code}"
+          - "{{ aap_url }}/api/controller/v2/me/"
+      register: aap_me
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Assert AAP Controller login succeeded
+      vars:
+        aap_status: "{{ aap_me.stdout_lines | last | default('000') }}"
+        aap_body: "{{ aap_me.stdout_lines[:-1] | join('') }}"
+      ansible.builtin.assert:
+        that:
+          - aap_me.rc == 0
+          - aap_status == "200"
+          - (aap_body | from_json).results[0].username == aap_user
+        fail_msg: "AAP Controller login failed for user {{ aap_user }} (curl rc={{ aap_me.rc }}, HTTP {{ aap_status }})"
+        success_msg: "AAP Controller login succeeded for user {{ aap_user }}"
+
+- name: Gitea API login check
+  hosts: clab
+  gather_facts: false
+  become: false
+  vars:
+    gitea_url: http://localhost:8181
+    gitea_user: gitea
+    gitea_password: gitea123  # notsecret
+  tasks:
+    - name: Query Gitea authenticated user
+      ansible.builtin.uri:
+        url: "{{ gitea_url }}/api/v1/user"
+        url_username: "{{ gitea_user }}"
+        url_password: "{{ gitea_password }}"
+        force_basic_auth: true
+        return_content: true
+        status_code: [200, 401]
+        timeout: 10
+      register: gitea_me
+      no_log: true
+
+    - name: Assert Gitea login succeeded
+      ansible.builtin.assert:
+        that:
+          - gitea_me.status == 200
+          - gitea_me.json.login == gitea_user
+        fail_msg: "Gitea login failed for user {{ gitea_user }} (HTTP {{ gitea_me.status }})"
+        success_msg: "Gitea login succeeded for user {{ gitea_user }}"
+
+- name: VS Code (code-server) reachability check
+  hosts: clab
+  gather_facts: false
+  become: false
+  vars:
+    vscode_url: http://vscode:8080
+  tasks:
+    # code-server runs with auth: none, so /healthz returning 200 is
+    # sufficient to confirm the editor is serving.
+    - name: Query code-server health endpoint
+      ansible.builtin.uri:
+        url: "{{ vscode_url }}/healthz"
+        return_content: true
+        status_code: 200
+        timeout: 10
+      register: vscode_health
+      failed_when: false
+
+    - name: Assert VS Code is reachable
+      ansible.builtin.assert:
+        that:
+          - vscode_health.status | default(0) == 200
+        fail_msg: >-
+          VS Code (code-server) not reachable at {{ vscode_url }}
+          (HTTP {{ vscode_health.status | default('n/a') }}: {{ vscode_health.msg | default('') }})
+        success_msg: "VS Code (code-server) is reachable at {{ vscode_url }}"

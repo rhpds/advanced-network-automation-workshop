@@ -194,7 +194,7 @@ Which option is correct depends on whether the SNMP change was intentional and s
 
 Restoring to `initial_config` strips away every configuration layer you built across the workshop -- base, underlay, overlay, compliance, and SNMP -- returning the devices to their bare startup state. Review the diff output to see how much configuration a single restore operation removes across six multi-vendor devices.
 
-. Launch the `1-2-Backups_as_Code-Restore` job template
+. Launch the `1-2-Backups_as_Code-Git-Restore` job template
 
 . When prompted for the branch name, select *initial_config*
 
@@ -346,7 +346,7 @@ changed: [leaf1]
 
 Restoring to `final_configs` rebuilds the entire fabric from the backup you captured in Step 1, proving that the restore workflow works in both directions -- tearing down and rebuilding. Compare this diff against Step 3's output to see the same configuration reappear with reversed `+`/`-` prefixes.
 
-. Launch the `1-2-Backups_as_Code-Restore` job template
+. Launch the `1-2-Backups_as_Code-Git-Restore` job template
 
 . When prompted for the branch name, select *final_configs*
 

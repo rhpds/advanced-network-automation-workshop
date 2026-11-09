@@ -1,0 +1,41 @@
+---
+# Reusable task list: one AAP Controller REST call via curl.
+# curl instead of uri: uri hangs against the AAP 2.6 gateway
+# (see lab-automation/playbooks/aap_bootstrap.yml).
+#
+# Expected vars:
+#   aap_path      – path under /api/controller/v2, e.g. "/job_templates/?name=x"
+#   aap_method    – GET (default), POST, PATCH
+#   aap_body      – optional dict sent as JSON
+#   aap_ok_codes  – accepted HTTP codes (default [200, 201, 202, 204])
+#   aap_raw       – true to skip JSON parsing (e.g. job stdout)
+#
+# Sets: aap_status (int), aap_json (dict), aap_text (str)
+
+- name: "AAP API call: {{ (aap_method | default('GET')) ~ ' ' ~ aap_path }}"
+  ansible.builtin.command:
+    argv: >-
+      {{ aap_curl_base
+         + ['-w', '\n%{http_code}', '-X', aap_method | default('GET')]
+         + (['-d', aap_body | to_json] if aap_body is defined else [])
+         + [aap_api_url ~ aap_path] }}
+  register: _aap_raw_result
+  changed_when: aap_method | default('GET') != 'GET'
+
+- name: "AAP API parse response for {{ aap_path }}"
+  vars:
+    _parts: "{{ _aap_raw_result.stdout.rsplit('\n', 1) }}"
+  ansible.builtin.set_fact:
+    aap_status: "{{ _parts[-1] | int }}"
+    aap_text: "{{ _parts[0] if _parts | length > 1 else '' }}"
+    aap_json: >-
+      {{ (_parts[0] | from_json)
+         if (not aap_raw | default(false)) and _parts | length > 1 and _parts[0][:1] in ['{', '[']
+         else {} }}
+
+- name: "AAP API assert HTTP status for {{ aap_path }}"
+  ansible.builtin.assert:
+    that:
+      - aap_status | int in aap_ok_codes | default([200, 201, 202, 204])
+    fail_msg: "AAP API {{ aap_method | default('GET') }} {{ aap_path }} returned HTTP {{ aap_status }}: {{ aap_text[:2000] }}"
+    quiet: true

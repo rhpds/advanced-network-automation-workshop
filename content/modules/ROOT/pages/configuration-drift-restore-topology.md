@@ -121,7 +121,7 @@ flowchart TD
     DRIFT --> OPT2
 
     subgraph OPT1 ["<b>Option 1 — Restore to Intended</b>"]
-        R1["Run restore workflow<br>1-2-Backups_as_Code-Restore"]
+        R1["Run restore workflow<br>1-2-Backups_as_Code-Git-Restore"]
         R2["Select branch: vxlan_configs"]
         R3["Devices rolled back<br>SNMP community removed"]
         R1 --> R2 --> R3

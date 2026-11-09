@@ -1,0 +1,30 @@
+---
+# Reusable task list: prove end-to-end VXLAN reachability from the
+# containerlab hosts (anycast gateways + cross-vendor host pings).
+# Run on the containerlab VM with become: true.
+
+- name: Ping from containerlab hosts
+  ansible.builtin.command:
+    cmd: "docker exec clab-vxlan-{{ item.host }} ping -c 3 -W 5 {{ item.dest }}"
+  register: ping_results
+  changed_when: false
+  retries: 3
+  delay: 20
+  until: ping_results.rc == 0
+  loop:
+    - { host: host1, dest: 10.50.50.1, desc: "host1 → gateway (VLAN 50)" }
+    - { host: host2, dest: 10.50.50.1, desc: "host2 → gateway (VLAN 50)" }
+    - { host: host3, dest: 10.40.40.1, desc: "host3 → gateway (VLAN 40)" }
+    - { host: host4, dest: 10.60.60.1, desc: "host4 → gateway (VLAN 60)" }
+    - { host: host1, dest: 10.50.50.52, desc: "host1 → host2 (L2 stretch)" }
+    - { host: host1, dest: 10.40.40.43, desc: "host1 → host3 (cross-vendor)" }
+    - { host: host2, dest: 10.60.60.64, desc: "host2 → host4 (cross-vendor)" }
+  loop_control:
+    label: "{{ item.desc }}"
+
+- name: Show ping results
+  ansible.builtin.debug:
+    msg: >-
+      {{ ping_results.results | map(attribute='item.desc')
+         | zip(ping_results.results | map(attribute='stdout_lines') | map('last'))
+         | map('join', ': ') | list }}

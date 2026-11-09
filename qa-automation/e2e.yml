@@ -1,15 +1,29 @@
 ---
 # E2E — End-to-end test
-# Fast-forwards the lab to a fully configured state by pushing golden configs
-# to all network devices, then validates the final fabric is operational.
+# Drives every workshop exercise (modules 1-1 through 1-8) through the AAP
+# Controller exactly as a student would: launching the same job templates
+# and workflows, answering their surveys, approving approval nodes, and
+# building the surveys students create by hand (1-3, 1-7) as code. Then it
+# validates the final fabric is operational.
 #
-# Golden configs live in qa-automation/golden-configs/<device>.cfg and represent
-# the running-config after all workshop modules are complete (through overlay).
+# The job templates/workflows are created by
+# lab-automation/playbooks/tasks/controller_workshop_objects.yml and run
+# playbooks from the Workshop Project
+# (https://gitlab.com/redhatautomation/201-multi-vendor-vxlan-workshop).
+#
+# Backup branch names get a timestamp suffix (e.g. initial_config-20261109T1200),
+# so the real name is read from each backup job's latest_branch_name artifact
+# and reused for later intent/restore launches.
 #
 # Flow:
 #   1. Build inventory (bastion + containerlab + network devices)
-#   2. Push golden configs to each device via cli_config
-#   3. Validate fabric — verify BGP/OSPF adjacencies and end-to-end host reachability
+#   2. Modules 1-1 → 1-6 via AAP (Netbox, backups, compliance, base/underlay/overlay)
+#   3. Validate fabric — BGP/OSPF state and host reachability
+#   4. Modules 1-7 → 1-8 via AAP (tuning for scale, drift detection, restores)
+#   5. Re-validate host reachability after restoring final_configs
+#
+# Requires a fresh lab: module 1-2 backs up the untouched devices as
+# initial_config, which module 1-8 later restores.
 
 - name: Install required collections
   hosts: localhost
@@ -47,6 +61,13 @@
         ansible_ssh_user: "{{ lookup('ansible.builtin.env', 'BASTION_USER') }}"
         ansible_ssh_pass: "{{ lookup('ansible.builtin.env', 'BASTION_PASSWORD') }}"
         groups: clab
+        # AAP Controller API, reached from the containerlab VM by short hostname.
+        aap_api_url: https://control/api/controller/v2
+        aap_curlrc: /tmp/e2e-aap.curlrc
+        aap_curl_base: [curl, -K, /tmp/e2e-aap.curlrc]
+        gitea_api_url: http://localhost:8181/api/v1
+        gitea_repo: gitea/201-multi-vendor-vxlan-workshop
+        netbox_url: http://localhost:8282
 
     - name: Add Arista EOS devices
       ansible.builtin.add_host:
@@ -82,33 +103,274 @@
         - { name: leaf3, port: 2224 }
         - { name: leaf4, port: 2225 }
 
-- name: Push golden configs to EOS devices
-  hosts: eos_devices
+- name: Prepare AAP API access
+  hosts: clab
   gather_facts: false
+  become: false
   tasks:
-    - name: Push config
-      ansible.netcommon.cli_config:
-        config: "{{ lookup('file', playbook_dir ~ '/golden-configs/' ~ inventory_hostname ~ '.cfg') }}"
-      register: config_result
+    - name: Write curl config with AAP credentials
+      ansible.builtin.copy:
+        dest: "{{ aap_curlrc }}"
+        mode: "0600"
+        content: |
+          user = "admin:ansible123!"
+          insecure
+          silent
+          max-time = 60
+          header = "Content-Type: application/json"
+          header = "Accept: application/json"
+      no_log: true
 
-    - name: Save running to startup
-      arista.eos.eos_command:
-        commands:
-          - write memory
+    - name: Verify AAP Controller API is reachable
+      ansible.builtin.include_tasks: tasks/aap_api.yml
+      vars:
+        aap_path: /me/
 
-- name: Push golden configs to NX-OS devices
-  hosts: nxos_devices
+# ── 1-1: Dynamic Inventory ──────────────────────────────────────────────────
+- name: "Module 1-1: Dynamic Inventory"
+  hosts: clab
   gather_facts: false
+  become: false
   tasks:
-    - name: Push config
-      ansible.netcommon.cli_config:
-        config: "{{ lookup('file', playbook_dir ~ '/golden-configs/' ~ inventory_hostname ~ '.cfg') }}"
-      register: config_result
+    # Steps 6-8: student creates a Netbox API token and pastes it into the
+    # "Netbox Credential" in AAP.
+    - name: Provision a Netbox API token for admin
+      ansible.builtin.uri:
+        url: "{{ netbox_url }}/api/users/tokens/provision/"
+        method: POST
+        body_format: json
+        body:
+          username: admin
+          password: admin@123  # notsecret
+          description: e2e
+        status_code: 201
+        timeout: 30
+      register: netbox_token_resp
+      no_log: true
 
-    - name: Save running to startup
-      cisco.nxos.nxos_command:
-        commands:
-          - copy running-config startup-config
+    # NetBox v2 tokens are used as "nbt_<key>.<secret>"; v1 tokens are a bare key.
+    - name: Build Netbox API token value
+      vars:
+        _t: "{{ netbox_token_resp.json }}"
+      ansible.builtin.set_fact:
+        netbox_api_token: >-
+          {{ _t.token if (_t.token | default('') | string).startswith('nbt_')
+             else ('nbt_' ~ _t.key ~ '.' ~ _t.token) if _t.version | default(1) | int == 2
+             else _t.key | default(_t.token) }}
+      no_log: true
+
+    - name: Verify Netbox API token works
+      ansible.builtin.uri:
+        url: "{{ netbox_url }}/api/dcim/sites/"
+        headers:
+          Authorization: "{{ 'Bearer' if netbox_api_token.startswith('nbt_') else 'Token' }} {{ netbox_api_token }}"
+        status_code: 200
+        timeout: 30
+
+    - name: Resolve Netbox Credential
+      ansible.builtin.include_tasks: tasks/aap_lookup.yml
+      vars:
+        aap_kind: credentials
+        aap_name: Netbox Credential
+
+    - name: Update Netbox Credential with the API token
+      ansible.builtin.include_tasks: tasks/aap_api.yml
+      vars:
+        aap_path: "/credentials/{{ aap_object_id }}/"
+        aap_method: PATCH
+        aap_body:
+          inputs:
+            NETBOX_API: http://containerlab:8282
+            NETBOX_API_KEY: "{{ netbox_api_token }}"
+
+    - name: "Step 9: Run 1-1-Dynamic_inventory-Netbox-Setup"
+      ansible.builtin.include_tasks: tasks/aap_run.yml
+      vars:
+        aap_kind: job_templates
+        aap_name: 1-1-Dynamic_inventory-Netbox-Setup
+
+    - name: "Step 10: Validate Netbox devices were created"
+      ansible.builtin.uri:
+        url: "{{ netbox_url }}/api/dcim/devices/?limit=0"
+        headers:
+          Authorization: "{{ 'Bearer' if netbox_api_token.startswith('nbt_') else 'Token' }} {{ netbox_api_token }}"
+        status_code: 200
+        timeout: 30
+      register: netbox_devices
+      failed_when: netbox_devices.json.count | int < 6
+
+    - name: "Step 11: Sync netbox-source inventory source"
+      ansible.builtin.include_tasks: tasks/aap_run.yml
+      vars:
+        aap_kind: inventory_sources
+        aap_name: netbox-source
+
+    - name: Resolve Netbox Inventory
+      ansible.builtin.include_tasks: tasks/aap_lookup.yml
+      vars:
+        aap_kind: inventories
+        aap_name: Netbox Inventory
+
+    - name: Assert Netbox Inventory has all six switches
+      ansible.builtin.assert:
+        that:
+          - aap_object.total_hosts | int >= 6
+        fail_msg: "Netbox Inventory has {{ aap_object.total_hosts }} hosts after sync, expected 6"
+        success_msg: "Netbox Inventory has {{ aap_object.total_hosts }} hosts"
+
+    - name: "Run 1-1-Dynamic_Inventory-Netbox-Facts"
+      ansible.builtin.include_tasks: tasks/aap_run.yml
+      vars:
+        aap_kind: job_templates
+        aap_name: 1-1-Dynamic_Inventory-Netbox-Facts
+
+# ── 1-2: Backups as Code ────────────────────────────────────────────────────
+- name: "Module 1-2: Backups as Code"
+  hosts: clab
+  gather_facts: false
+  become: false
+  tasks:
+    - name: "Step 1: Back up initial_config"
+      ansible.builtin.include_tasks: tasks/aap_run.yml
+      vars:
+        aap_kind: job_templates
+        aap_name: 1-2-Backups_as_Code-Backup-GIT
+        aap_extra_vars:
+          branch_name: initial_config
+
+    - name: Record initial_config branch name
+      ansible.builtin.set_fact:
+        initial_config_branch: "{{ aap_job.artifacts.latest_branch_name }}"
+
+    - name: "Step 2: Verify backup branch exists in Gitea: {{ initial_config_branch }}"
+      ansible.builtin.uri:
+        url: "{{ gitea_api_url }}/repos/{{ gitea_repo }}/branches/{{ initial_config_branch }}"
+        url_username: gitea
+        url_password: gitea123  # notsecret
+        force_basic_auth: true
+        status_code: 200
+        timeout: 30
+
+    # Play 2 of backups.yml rebuilds these job templates with the branch
+    # list as survey choices.
+    - name: Verify Git-Intent and Git-Restore surveys offer the new branch
+      ansible.builtin.include_tasks: tasks/aap_survey_has_choice.yml
+      vars:
+        aap_name: "{{ item }}"
+        aap_choice: "{{ initial_config_branch }}"
+      loop:
+        - 1-2-Backups_as_Code-Git-Intent
+        - 1-2-Backups_as_Code-Git-Restore
+
+# ── 1-3: Network Compliance ─────────────────────────────────────────────────
+- name: "Module 1-3: Network Compliance"
+  hosts: clab
+  gather_facts: false
+  become: false
+  tasks:
+    - name: "Step 1: Create the compliance survey on the workflow"
+      ansible.builtin.include_tasks: tasks/aap_survey.yml
+      vars:
+        aap_kind: workflow_job_templates
+        aap_name: 1-3-Network-Compliance-Workflow
+        aap_survey_spec:
+          - question_name: Which compliance checks to run?
+            type: multiselect
+            variable: tag
+            required: true
+            choices: [logging, ntp]
+            default: ""
+
+    - name: "Step 2: Run 1-3-Network-Compliance-Workflow and approve"
+      ansible.builtin.include_tasks: tasks/aap_run.yml
+      vars:
+        aap_kind: workflow_job_templates
+        aap_name: 1-3-Network-Compliance-Workflow
+        aap_extra_vars:
+          tag: [logging, ntp]
+        aap_approve: true
+        aap_expect_nodes:
+          Compliance Check: successful
+          Compliance Run: successful
+
+# ── 1-4: Base Configurations ────────────────────────────────────────────────
+- name: "Module 1-4: Base Configurations"
+  hosts: clab
+  gather_facts: false
+  become: false
+  tasks:
+    - name: "Step 1: Run 1-4-Base_Configs-Workflow"
+      ansible.builtin.include_tasks: tasks/aap_run.yml
+      vars:
+        aap_kind: workflow_job_templates
+        aap_name: 1-4-Base_Configs-Workflow
+        aap_expect_nodes:
+          Backups: successful
+          Deploy: successful
+          Test: successful
+
+    # Broken addressing fails the Test node, which triggers Restore to the
+    # backup taken at the start of the workflow.
+    - name: "Step 5: Run 1-4-Base_Configs-Workflow-Error (expect Test fail → Restore)"
+      ansible.builtin.include_tasks: tasks/aap_run.yml
+      vars:
+        aap_kind: workflow_job_templates
+        aap_name: 1-4-Base_Configs-Workflow-Error
+        aap_expect: [successful, failed]
+        aap_expect_nodes:
+          Deploy: successful
+          Test: failed
+          Restore: successful
+
+    - name: Re-test base configs after the restore
+      ansible.builtin.include_tasks: tasks/aap_run.yml
+      vars:
+        aap_kind: job_templates
+        aap_name: 1-4-Base_Configs-Test
+
+# ── 1-5: Underlay Configs ───────────────────────────────────────────────────
+- name: "Module 1-5: Underlay Configs"
+  hosts: clab
+  gather_facts: false
+  become: false
+  tasks:
+    - name: "Step 1: Run 1-5-Underlay_Configs-Workflow"
+      ansible.builtin.include_tasks: tasks/aap_run.yml
+      vars:
+        aap_kind: workflow_job_templates
+        aap_name: 1-5-Underlay_Configs-Workflow
+        aap_expect_nodes:
+          Backups: successful
+          Deploy: successful
+          Test: successful
+
+# ── 1-6: Overlay Configs ────────────────────────────────────────────────────
+- name: "Module 1-6: Overlay Configs"
+  hosts: clab
+  gather_facts: false
+  become: false
+  tasks:
+    - name: "Step 1: Run 1-6-Overlay_Configs-Workflow"
+      ansible.builtin.include_tasks: tasks/aap_run.yml
+      vars:
+        aap_kind: workflow_job_templates
+        aap_name: 1-6-Overlay_Configs-Workflow
+        aap_expect_nodes:
+          Backups: successful
+          Deploy: successful
+          Test: successful
+
+    - name: "Step 4: Back up vxlan_configs"
+      ansible.builtin.include_tasks: tasks/aap_run.yml
+      vars:
+        aap_kind: job_templates
+        aap_name: 1-2-Backups_as_Code-Backup-GIT
+        aap_extra_vars:
+          branch_name: vxlan_configs
+
+    - name: Record vxlan_configs branch name
+      ansible.builtin.set_fact:
+        vxlan_configs_branch: "{{ aap_job.artifacts.latest_branch_name }}"
 
 - name: Wait for convergence
   hosts: localhost
@@ -166,68 +428,127 @@
       ansible.builtin.debug:
         msg: "{{ ospf_result.stdout_lines }}"
 
-- name: Validate gateway reachability
+- name: "Module 1-6 Step 2: Validate host reachability"
   hosts: clab
   gather_facts: false
   become: true
   tasks:
-    - name: Ping host1 → gateway (VLAN 50)
-      ansible.builtin.command:
-        cmd: docker exec clab-vxlan-host1 ping -c 3 -W 5 10.50.50.1
-      register: ping_h1_gw
-      changed_when: false
-      failed_when: ping_h1_gw.rc != 0
+    - name: Validate host reachability
+      ansible.builtin.include_tasks: tasks/validate_hosts.yml
 
-    - name: Ping host2 → gateway (VLAN 50)
-      ansible.builtin.command:
-        cmd: docker exec clab-vxlan-host2 ping -c 3 -W 5 10.50.50.1
-      register: ping_h2_gw
-      changed_when: false
-      failed_when: ping_h2_gw.rc != 0
+# ── 1-7: Tuning for Scale ───────────────────────────────────────────────────
+- name: "Module 1-7: Tuning for Scale"
+  hosts: clab
+  gather_facts: false
+  become: false
+  tasks:
+    - name: "Step 1: Create the tuning survey on 1-7-Tuning_For_Scale"
+      ansible.builtin.include_tasks: tasks/aap_survey.yml
+      vars:
+        aap_kind: job_templates
+        aap_name: 1-7-Tuning_For_Scale
+        aap_survey_spec:
+          - question_name: Do you want to send an error?
+            type: multiplechoice
+            variable: error
+            required: true
+            choices: ["yes", "no"]
+            default: "no"
+          - question_name: Please select the 'Serial' batch percentages
+            type: multiselect
+            variable: serials
+            required: true
+            choices: ["1", "35%", "50%", "75%", "100%"]
+            default: ""
+          - question_name: Please select the Maximum_Failure_Percentage
+            type: multiplechoice
+            variable: max_fail
+            required: true
+            choices: ["0", "5", "10", "20", "50", "75", "100"]
+            default: ""
 
-    - name: Ping host3 → gateway (VLAN 40)
-      ansible.builtin.command:
-        cmd: docker exec clab-vxlan-host3 ping -c 3 -W 5 10.40.40.1
-      register: ping_h3_gw
-      changed_when: false
-      failed_when: ping_h3_gw.rc != 0
+    - name: "Step 2: Run 1-7-Tuning_For_Scale with no error"
+      ansible.builtin.include_tasks: tasks/aap_run.yml
+      vars:
+        aap_kind: job_templates
+        aap_name: 1-7-Tuning_For_Scale
+        aap_extra_vars:
+          error: "no"
+          serials: ["1", "50%", "100%"]
+          max_fail: "0"
 
-    - name: Ping host4 → gateway (VLAN 60)
-      ansible.builtin.command:
-        cmd: docker exec clab-vxlan-host4 ping -c 3 -W 5 10.60.60.1
-      register: ping_h4_gw
-      changed_when: false
-      failed_when: ping_h4_gw.rc != 0
+    # The NX-OS hosts fail on purpose; max_fail_percentage 0 aborts the
+    # remaining batches, so the job itself must end failed.
+    - name: "Step 3: Run 1-7-Tuning_For_Scale with an error (expect failed)"
+      ansible.builtin.include_tasks: tasks/aap_run.yml
+      vars:
+        aap_kind: job_templates
+        aap_name: 1-7-Tuning_For_Scale
+        aap_extra_vars:
+          error: "yes"
+          serials: ["1", "50%", "100%"]
+          max_fail: "0"
+        aap_expect: [failed]
 
-    - name: Show gateway ping results
-      ansible.builtin.debug:
-        msg:
-          - "host1 → gw 10.50.50.1: {{ ping_h1_gw.stdout_lines[-1] }}"
-          - "host2 → gw 10.50.50.1: {{ ping_h2_gw.stdout_lines[-1] }}"
-          - "host3 → gw 10.40.40.1: {{ ping_h3_gw.stdout_lines[-1] }}"
-          - "host4 → gw 10.60.60.1: {{ ping_h4_gw.stdout_lines[-1] }}"
+# ── 1-8: Configuration Drift and Restore ────────────────────────────────────
+- name: "Module 1-8: Configuration Drift and Restore"
+  hosts: clab
+  gather_facts: false
+  become: false
+  tasks:
+    - name: "Step 1: Back up final_configs"
+      ansible.builtin.include_tasks: tasks/aap_run.yml
+      vars:
+        aap_kind: job_templates
+        aap_name: 1-2-Backups_as_Code-Backup-GIT
+        aap_extra_vars:
+          branch_name: final_configs
 
-- name: Validate cross-vendor host reachability
+    - name: Record final_configs branch name
+      ansible.builtin.set_fact:
+        final_configs_branch: "{{ aap_job.artifacts.latest_branch_name }}"
+
+    - name: "Step 2: Drift check against {{ vxlan_configs_branch }}"
+      ansible.builtin.include_tasks: tasks/aap_run.yml
+      vars:
+        aap_kind: job_templates
+        aap_name: 1-2-Backups_as_Code-Git-Intent
+        aap_extra_vars:
+          branch_name: "{{ vxlan_configs_branch }}"
+
+    - name: "Step 3: Restore {{ initial_config_branch }}"
+      ansible.builtin.include_tasks: tasks/aap_run.yml
+      vars:
+        aap_kind: job_templates
+        aap_name: 1-2-Backups_as_Code-Git-Restore
+        aap_extra_vars:
+          branch_name: "{{ initial_config_branch }}"
+
+    - name: "Step 4: Restore {{ final_configs_branch }}"
+      ansible.builtin.include_tasks: tasks/aap_run.yml
+      vars:
+        aap_kind: job_templates
+        aap_name: 1-2-Backups_as_Code-Git-Restore
+        aap_extra_vars:
+          branch_name: "{{ final_configs_branch }}"
+
+- name: Wait for convergence after final restore
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Pause for routing protocols to converge
+      ansible.builtin.pause:
+        seconds: 60
+
+- name: "Final: Validate host reachability after restoring final_configs"
   hosts: clab
   gather_facts: false
   become: true
   tasks:
-    - name: Ping from host1 to host3 (cross-vendor VXLAN)
-      ansible.builtin.command:
-        cmd: docker exec clab-vxlan-host1 ping -c 3 -W 5 10.40.40.43
-      register: ping_h1_h3
-      changed_when: false
-      failed_when: ping_h1_h3.rc != 0
+    - name: Validate host reachability
+      ansible.builtin.include_tasks: tasks/validate_hosts.yml
 
-    - name: Ping from host2 to host4 (cross-vendor VXLAN)
-      ansible.builtin.command:
-        cmd: docker exec clab-vxlan-host2 ping -c 3 -W 5 10.60.60.64
-      register: ping_h2_h4
-      changed_when: false
-      failed_when: ping_h2_h4.rc != 0
-
-    - name: Show cross-vendor ping results
-      ansible.builtin.debug:
-        msg:
-          - "host1 → host3: {{ ping_h1_h3.stdout_lines[-1] }}"
-          - "host2 → host4: {{ ping_h2_h4.stdout_lines[-1] }}"
+    - name: Remove AAP curl config
+      ansible.builtin.file:
+        path: "{{ aap_curlrc }}"
+        state: absent
