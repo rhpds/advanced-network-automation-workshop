@@ -18,7 +18,7 @@
     - { host: host4, dest: 10.60.60.1, desc: "host4 → gateway (VLAN 60)" }
     - { host: host1, dest: 10.50.50.52, desc: "host1 → host2 (L2 stretch)" }
     - { host: host1, dest: 10.40.40.43, desc: "host1 → host3 (cross-vendor)" }
-    - { host: host2, dest: 10.60.60.64, desc: "host2 → host4 (cross-vendor)" }
+    - { host: host1, dest: 10.60.60.64, desc: "host1 → host4 (cross-vendor)" }
   loop_control:
     label: "{{ item.desc }}"
 
