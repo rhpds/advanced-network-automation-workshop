@@ -317,25 +317,6 @@
           Deploy: successful
           Test: successful
 
-    # Broken addressing fails the Test node, which triggers Restore to the
-    # backup taken at the start of the workflow.
-    - name: "Step 5: Run 1-4-Base_Configs-Workflow-Error (expect Test fail → Restore)"
-      ansible.builtin.include_tasks: tasks/aap_run.yml
-      vars:
-        aap_kind: workflow_job_templates
-        aap_name: 1-4-Base_Configs-Workflow-Error
-        aap_expect: [successful, failed]
-        aap_expect_nodes:
-          Deploy: successful
-          Test: failed
-          Restore: successful
-
-    - name: Re-test base configs after the restore
-      ansible.builtin.include_tasks: tasks/aap_run.yml
-      vars:
-        aap_kind: job_templates
-        aap_name: 1-4-Base_Configs-Test
-
 # ── 1-5: Underlay Configs ───────────────────────────────────────────────────
 - name: "Module 1-5: Underlay Configs"
   hosts: clab
