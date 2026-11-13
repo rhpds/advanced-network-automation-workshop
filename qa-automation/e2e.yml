@@ -16,29 +16,14 @@
 # and reused for later intent/restore launches.
 #
 # Flow:
-#   1. Build inventory (bastion + containerlab + network devices)
+#   1. Build inventory (bastion + containerlab)
 #   2. Modules 1-1 → 1-6 via AAP (Netbox, backups, compliance, base/underlay/overlay)
-#   3. Validate fabric — BGP/OSPF state and host reachability
+#   3. Validate fabric — host reachability to the anycast gateways
 #   4. Modules 1-7 → 1-8 via AAP (tuning for scale, drift detection, restores)
 #   5. Re-validate host reachability after restoring final_configs
 #
 # Requires a fresh lab: module 1-2 backs up the untouched devices as
 # initial_config, which module 1-8 later restores.
-
-- name: Install required collections
-  hosts: localhost
-  gather_facts: false
-  tasks:
-    - name: Install Python SSH dependencies
-      ansible.builtin.pip:
-        name:
-          - paramiko
-        state: present
-
-    - name: Install collections from requirements.yml
-      ansible.builtin.command:
-        cmd: ansible-galaxy collection install -r {{ playbook_dir }}/requirements.yml --force
-      changed_when: true
 
 - name: Build inventory
   hosts: localhost
@@ -68,40 +53,6 @@
         gitea_api_url: http://localhost:8181/api/v1
         gitea_repo: gitea/201-multi-vendor-vxlan-workshop
         netbox_url: http://localhost:8282
-
-    - name: Add Arista EOS devices
-      ansible.builtin.add_host:
-        name: "{{ item.name }}"
-        ansible_host: containerlab
-        ansible_port: "{{ item.port }}"
-        ansible_network_os: arista.eos.eos
-        ansible_connection: ansible.netcommon.network_cli
-        ansible_user: admin
-        ansible_password: admin@123
-        ansible_become: true
-        ansible_become_method: enable
-        ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
-        groups: eos_devices
-      loop:
-        - { name: leaf1, port: 2222 }
-        - { name: leaf2, port: 2223 }
-        - { name: spine1, port: 2226 }
-        - { name: spine2, port: 2227 }
-
-    - name: Add Cisco NX-OS devices
-      ansible.builtin.add_host:
-        name: "{{ item.name }}"
-        ansible_host: containerlab
-        ansible_port: "{{ item.port }}"
-        ansible_network_os: cisco.nxos.nxos
-        ansible_connection: ansible.netcommon.network_cli
-        ansible_user: admin
-        ansible_password: admin@123
-        ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
-        groups: nxos_devices
-      loop:
-        - { name: leaf3, port: 2224 }
-        - { name: leaf4, port: 2225 }
 
 - name: Prepare AAP API access
   hosts: clab
@@ -360,62 +311,6 @@
     - name: Record vxlan_configs branch name
       ansible.builtin.set_fact:
         vxlan_configs_branch: "{{ aap_job.artifacts.latest_branch_name }}"
-
-- name: Wait for convergence
-  hosts: localhost
-  gather_facts: false
-  tasks:
-    - name: Pause for routing protocols to converge
-      ansible.builtin.pause:
-        seconds: 60
-
-- name: Validate fabric — EOS devices
-  hosts: eos_devices
-  gather_facts: false
-  tasks:
-    - name: Check BGP summary
-      arista.eos.eos_command:
-        commands:
-          - show ip bgp summary
-      register: bgp_result
-
-    - name: Show BGP output
-      ansible.builtin.debug:
-        msg: "{{ bgp_result.stdout_lines }}"
-
-    - name: Check OSPF neighbors
-      arista.eos.eos_command:
-        commands:
-          - show ip ospf neighbor
-      register: ospf_result
-
-    - name: Show OSPF output
-      ansible.builtin.debug:
-        msg: "{{ ospf_result.stdout_lines }}"
-
-- name: Validate fabric — NX-OS devices
-  hosts: nxos_devices
-  gather_facts: false
-  tasks:
-    - name: Check BGP summary
-      cisco.nxos.nxos_command:
-        commands:
-          - show ip bgp summary
-      register: bgp_result
-
-    - name: Show BGP output
-      ansible.builtin.debug:
-        msg: "{{ bgp_result.stdout_lines }}"
-
-    - name: Check OSPF neighbors
-      cisco.nxos.nxos_command:
-        commands:
-          - show ip ospf neighbors
-      register: ospf_result
-
-    - name: Show OSPF output
-      ansible.builtin.debug:
-        msg: "{{ ospf_result.stdout_lines }}"
 
 - name: "Module 1-6 Step 2: Validate host reachability"
   hosts: clab
