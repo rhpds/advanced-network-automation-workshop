@@ -76,6 +76,12 @@ image::gitea_leaf3.png[Leaf3,align="center",link=self,window=_blank]
 
 Below are the key code snippets with explanations.
 
+=== Visit the *VSCode* tab to review the `backups.yml` playbook
+[source,yaml]
+----
+201-multi-vendor-vxlan-workshop/1-2-backups_as_code/backups.yml
+----
+
 === Play 1: Backup Switch Configs to Gitea in Branches
 
 ==== Capturing a Timestamp
